@@ -59,8 +59,12 @@ def train():
     model = SongCiGPT()
     dataset = SongCiDataset()
     trainer = Trainer(model, dataset, device=torch.device("cuda"), batch_size=32, max_seq_len=256)
-    trainer.train(num_epochs=100)
-    trainer.save("./ckpt/model.pt")
+    try:
+        trainer.train(num_epochs=100)
+    except KeyboardInterrupt:
+        print("Training interrupted by user")
+    finally:
+        trainer.save("./ckpt/model.pt")
 
 
 if __name__ == "__main__":

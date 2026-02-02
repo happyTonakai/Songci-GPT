@@ -1,14 +1,15 @@
 import torch
+from fire import Fire
 
 from model import SongCiGPT
 from tokenizer import BPETokenizer
 
 
-def inference():
+def inference(ckpt: str = "ckpt/model.pt"):
     tokenizer = BPETokenizer()
     tokenizer.load("ckpt/songci_tokenizer.json")
     model = SongCiGPT()
-    model.load_state_dict(torch.load("ckpt/model.pt", weights_only=True))
+    model.load_state_dict(torch.load(ckpt, weights_only=True))
     model.to("cuda")
     model.eval()
     while True:
@@ -21,4 +22,4 @@ def inference():
 
 
 if __name__ == "__main__":
-    inference()
+    Fire(inference)

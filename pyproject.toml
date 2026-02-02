@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "einops>=0.8.2",
+    "fire>=0.7.1",
     "jieba>=0.42.1",
     "numpy>=2.4.1",
     "orjson>=3.11.5",
