@@ -16,10 +16,10 @@ class PositionalEmbedding(nn.Module):
         self.embedding = nn.Embedding(max_seq_len, embedding_dim)
         self.max_seq_len = max_seq_len
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, offset: int = 0) -> torch.Tensor:
         # x: [batch_size, seq_len, embedding_dim]
         seq_len = x.size(1)
-        positions = torch.arange(seq_len, dtype=torch.long, device=x.device)
+        positions = torch.arange(offset, offset + seq_len, dtype=torch.long, device=x.device)
         pos_emb = self.embedding(positions.unsqueeze(0))
         return x + pos_emb
 
@@ -40,14 +40,22 @@ class MultiHeadSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.out_dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        # x: [batch_size, seq_len, embedding_dim]
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor = None, past_kv: tuple[torch.Tensor] | None = None
+    ) -> torch.Tensor:
+        # x: [batch_size, seq_len, embedding_dim], if past_kv is not None, x is the current input, i.e., seq_len = 1
         q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
-        # q, k, v: [batch_size, seq_len, embedding_dim]
+        # q, k, v: [batch_size, seq_len, embedding_dim] -> [batch_size, num_head, seq_len, embedding_dim // num_head]
         q = rearrange(q, "b s (h d) -> b h s d", h=self.num_head)
         k = rearrange(k, "b s (h d) -> b h s d", h=self.num_head)
         v = rearrange(v, "b s (h d) -> b h s d", h=self.num_head)
-        # q, k, v: [batch_size, num_head, seq_len, embedding_dim // num_head]
+        # kv cache
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+        present_kv = (k, v)
+
         attn_score = torch.matmul(q, k.transpose(-1, -2)) * self.scale
         # attn_score: [batch_size, num_head, seq_len, seq_len]
         if mask is not None:
@@ -58,7 +66,7 @@ class MultiHeadSelfAttention(nn.Module):
         output = rearrange(output, "b h s d -> b s (h d)")
         output = self.out_proj(output)
         output = self.out_dropout(output)
-        return output
+        return output, present_kv
 
 
 class TransformerLayer(nn.Module):
@@ -74,13 +82,16 @@ class TransformerLayer(nn.Module):
         )
         self.norm2 = nn.LayerNorm(embedding_dim)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor = None, past_kv: tuple[torch.Tensor] | None = None
+    ) -> torch.Tensor:
         x_norm = self.norm1(x)
-        x = x + self.self_attn(x_norm, mask)
+        attn_out, present_kv = self.self_attn(x_norm, mask, past_kv)
+        x = x + attn_out
 
         x_norm = self.norm2(x)
         x = x + self.ffn(x_norm)
-        return x
+        return x, present_kv
 
 
 class TransformerEncoder(nn.Module):
@@ -88,10 +99,15 @@ class TransformerEncoder(nn.Module):
         super().__init__()
         self.layers = nn.ModuleList([layer for _ in range(num_layers)])
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        for layer in self.layers:
-            x = layer(x, mask)
-        return x
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor = None, past_kv_list: list | None = None
+    ) -> torch.Tensor:
+        present_kv_list = []
+        for i, layer in enumerate(self.layers):
+            past_kv = past_kv_list[i] if past_kv_list is not None else None
+            x, present_kv = layer(x, mask, past_kv)
+            present_kv_list.append(present_kv)
+        return x, present_kv_list
 
 
 class SongCiGPT(nn.Module):
@@ -138,15 +154,21 @@ class SongCiGPT(nn.Module):
             nn.init.ones_(module.weight)
 
     def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,  # for padding mask
+        past_kv_list: list | None = None,
     ) -> torch.Tensor:
         # input_ids: [batch_size, seq_len]
         # attention_mask: [batch_size, seq_len]
         batch_size, seq_len = input_ids.size()
         # 1. Get token embeddings
         x = self.emb(input_ids)
-        # 2. Add positional embeddings
-        x = self.pos_emb(x)
+        # 2. Add positional embeddings with proper offset
+        past_length = 0
+        if past_kv_list is not None:
+            past_length = past_kv_list[0][0].size(2)
+        x = self.pos_emb(x, offset=past_length)
         # 3. Generate causal mask
         causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
         # ! this works before:  causal_mask = causal_mask.float().masked_fill(causal_mask == True, float("-inf"))
@@ -161,11 +183,11 @@ class SongCiGPT(nn.Module):
 
         # 4. Apply transformer
         # ! this works before: x = self.transformer(src=x, mask=causal_mask, src_key_padding_mask=attention_mask)
-        x = self.transformer(x, mask)
+        x, present_kv_list = self.transformer(x, mask, past_kv_list)
 
         # 5. Apply linear layer
         logits = self.ffn(x)
-        return logits
+        return logits, present_kv_list
 
     @torch.no_grad()
     def generate(
@@ -179,13 +201,17 @@ class SongCiGPT(nn.Module):
     ) -> str:
         self.eval()
         device = self.ffn.weight.device
+        past_kv = None
         # 1. Encode prompt text
         prompt_text = "<bos>" + prompt_text + "<sep>"
         input_ids = tokenizer.encode(prompt_text)
         input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)
         # 2. Generate tokens
         for _ in range(self.max_seq_len - len(input_ids)):
-            logits = self(input_ids)  # [batch_size, seq_len, vocab_size]
+            # if past_kv is not None, only pass the last token
+            # otherwise, pass the whole input_ids
+            x = input_ids if past_kv is None else input_ids[:, -1:]
+            logits, past_kv = self(x, past_kv_list=past_kv)  # [batch_size, seq_len, vocab_size]
             logits = logits[:, -1, :]  # select the last generated logits
             # 3. Apply temperature
             logits = logits / temperature
@@ -248,10 +274,10 @@ if __name__ == "__main__":
 
     # test SongCiGPT
     model = SongCiGPT()
-    input_ids = torch.randint(0, 1000, (4, 256))
-    attention_mask = torch.ones(4, 256).bool()
+    # input_ids = torch.randint(0, 1000, (4, 256))
+    # attention_mask = torch.ones(4, 256).bool()
     # attention_mask = None
-    print(model(input_ids, attention_mask).shape)
+    # print(model(input_ids, attention_mask).shape)
 
     # test generate
     model.load_state_dict(torch.load("ckpt/model.pt"))
