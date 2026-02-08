@@ -69,10 +69,10 @@ uv run python scratch/inference.py
 
 ```bash
 # 训练模型
-python unsloth/train_qwen_songci.py --mode train
+uv run python unsloth/train_qwen_songci.py --mode train
 
 # 推理生成
-python unsloth/train_qwen_songci.py --mode infer
+uv run python unsloth/train_qwen_songci.py --mode infer
 ```
 
 ## 数据集
