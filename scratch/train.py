@@ -34,7 +34,7 @@ class Trainer:
                 labels = batch_dict["labels"].to(self.device)
                 attention_mask = batch_dict["attention_mask"].to(self.device)
 
-                outputs = self.model(input_ids, attention_mask)
+                outputs, _ = self.model(input_ids, attention_mask)
 
                 loss = F.cross_entropy(outputs.view(-1, outputs.shape[-1]), labels.view(-1))
                 loss.backward()

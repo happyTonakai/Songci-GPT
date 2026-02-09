@@ -19,7 +19,7 @@ class SongCiDataset(Dataset):
                     item["rhythmic"] + "<sep>" + "".join(item["paragraphs"]) for item in data
                 ]
         self.tokenizer = BPETokenizer()
-        self.tokenizer.load("./ckpt/songci_tokenizer.json")
+        self.tokenizer.load("scratch/ckpt/songci_tokenizer.json")
         bos_id = [self.tokenizer.bos_id]
         eos_id = [self.tokenizer.eos_id]
         pad_id = [self.tokenizer.pad_id]
