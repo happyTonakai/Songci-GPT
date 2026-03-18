@@ -1,10 +1,10 @@
 import torch
 import torch.nn.functional as F
+from model import SongCiGPT
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import SongCiDataset
-from model import SongCiGPT
 
 
 class Trainer:
@@ -20,7 +20,11 @@ class Trainer:
         self.model = model
         self.model.to(device)
         self.dataloader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, num_workers=8, persistent_workers=True
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=8,
+            persistent_workers=True,
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.device = device
@@ -34,17 +38,22 @@ class Trainer:
                 labels = batch_dict["labels"].to(self.device)
                 attention_mask = batch_dict["attention_mask"].to(self.device)
 
-                outputs, _ = self.model(input_ids, attention_mask)
+                outputs, _, aux_loss = self.model(input_ids, attention_mask)
 
-                loss = F.cross_entropy(outputs.view(-1, outputs.shape[-1]), labels.view(-1))
-                loss.backward()
+                loss = F.cross_entropy(
+                    outputs.view(-1, outputs.shape[-1]), labels.view(-1)
+                )
+                total_loss = loss + aux_loss
+                total_loss.backward()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-                pbar.set_description(f"Epoch {epoch}, Loss {loss.item():.4f}")
+                pbar.set_description(
+                    f"Epoch {epoch}, Loss {loss.item():.4f}, Aux Loss {aux_loss.item():.4f}"
+                )
 
             if epoch % 20 == 0:
-                self.save(f"./ckpt/model_{epoch}.pt")
+                self.save(f"./scratch/ckpt/model_{epoch}.pt")
 
     def save(self, path: str):
         torch.save(self.model.state_dict(), path)
@@ -58,13 +67,15 @@ class Trainer:
 def train():
     model = SongCiGPT()
     dataset = SongCiDataset()
-    trainer = Trainer(model, dataset, device=torch.device("cuda"), batch_size=32, max_seq_len=256)
+    trainer = Trainer(
+        model, dataset, device=torch.device("cuda"), batch_size=32, max_seq_len=256
+    )
     try:
         trainer.train(num_epochs=100)
     except KeyboardInterrupt:
         print("Training interrupted by user")
     finally:
-        trainer.save("./ckpt/model.pt")
+        trainer.save("./scratch/ckpt/model.pt")
 
 
 if __name__ == "__main__":

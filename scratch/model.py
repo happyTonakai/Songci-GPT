@@ -1,10 +1,10 @@
 import torch
 import torch.nn.functional as F
-from einops import rearrange
 from torch import nn
+from einops import rearrange
 
 from tokenizer import BPETokenizer
-
+from attention import MultiHeadSelfAttention
 
 class PositionalEmbedding(nn.Module):
     """
@@ -35,85 +35,60 @@ class PositionalEmbedding(nn.Module):
         pos_emb = self.embedding(positions.unsqueeze(0))
         return x + pos_emb
 
-
-class MultiHeadSelfAttention(nn.Module):
-    """
-    Multi-head Self-Attention with KV Cache Support
-
-    KV Cache 的核心思想：
-    - 在自回归生成中，每个新 token 都需要与之前所有 token 计算注意力
-    - 如果不使用 KV Cache，每次都需要重新计算所有历史 token 的 K 和 V
-    - 使用 KV Cache 可以缓存历史 K 和 V，只需计算新 token 的 K 和 V，然后拼接
-
-    为什么只缓存 K 和 V，不缓存 Q？
-    - 对于自回归生成，每个位置只关心"之前"的 token
-    - 新位置的 Q 只与当前位置有关，不需要缓存
-    - 但 K 和 V 需要与之前的拼接，所以需要缓存
-    """
-
-    def __init__(self, embedding_dim: int, num_head: int, dropout: float = 0.1):
+class MoELayer(nn.Module):
+    def __init__(self, n_experts:int, topk:int, hidden_dim:int, embedding_dim:int, dropout:float, aux_loss_coef:float=0.01):
         super().__init__()
-        self.embedding_dim = embedding_dim
-        self.num_head = num_head
-        self.head_dim = embedding_dim // num_head
-        self.qkv_proj = nn.Linear(embedding_dim, embedding_dim * 3)
-        self.out_proj = nn.Linear(embedding_dim, embedding_dim)
-        self.scale = self.head_dim**-0.5
-        self.attn_dropout = nn.Dropout(dropout)
-        self.out_dropout = nn.Dropout(dropout)
+        assert topk<=n_experts
+        self.topk = topk
+        self.aux_loss_coef = aux_loss_coef
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(embedding_dim, hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, embedding_dim),
+                nn.Dropout(dropout),
+            )
+         for _ in range(n_experts)])
+        self.router = nn.Linear(embedding_dim, n_experts)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Args:
-            x: 输入张量 [batch_size, seq_len, embedding_dim]
-               如果 past_kv 不为 None，则 seq_len 通常为 1（只输入最后一个 token）
-            mask: 注意力掩码
-            past_kv: 缓存的历史 K 和 V，格式为 (past_k, past_v)
-                    - past_k: [batch_size, num_head, past_seq_len, head_dim]
-                    - past_v: [batch_size, num_head, past_seq_len, head_dim]
+    def forward(self, x:torch.Tensor)->tuple[torch.Tensor, torch.Tensor]:
+        # x shape: (batch, seq_len, d_model)
+        B,T,D = x.shape
+        x = rearrange(x, 'b t d -> (b t) d')
+        logits = self.router(x)
+        probs = F.softmax(logits, dim=-1) # 每个token选择每个专家的概率 (n_tokens, n_experts)
+        expert_usage = probs.mean(dim=0) # 每个专家平均被选择的概率 (n_experts, )
+        # 负载均衡loss: 希望每个专家被均匀使用，最小化方差
+        load_balance_loss = (expert_usage * expert_usage).sum() * self.aux_loss_coef
+         
+        topk_logits, topk_indices = torch.topk(logits, self.topk, dim=-1)
+        weights = F.softmax(topk_logits, dim=-1)
+        # 在很多主流实现（比如 Switch Transformer）中，人们倾向于对所有专家的 logits 先做 Softmax，
+        # 然后再取 Top-K。如果先取 Top-K 再 Softmax，会放大这 $K$ 个专家之间的差距
+        #
 
-        Returns:
-            output: 注意力输出 [batch_size, seq_len, embedding_dim]
-            present_kv: 当前的 K 和 V（含历史缓存），用于下一轮生成
-        """
-        # x: [batch_size, seq_len, embedding_dim]
-        q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
-        # q, k, v: [batch_size, seq_len, embedding_dim]
-        # -> [batch_size, num_head, seq_len, embedding_dim // num_head]
-        q = rearrange(q, "b s (h d) -> b h s d", h=self.num_head)
-        k = rearrange(k, "b s (h d) -> b h s d", h=self.num_head)
-        v = rearrange(v, "b s (h d) -> b h s d", h=self.num_head)
+        # weighted sum of experts outputs
+        output = torch.zeros_like(x, device=x.device)
 
-        # KV Cache: 将新计算的 K、V与历史缓存拼接
-        # 这样注意力计算可以一次性处理所有历史 token
-        if past_kv is not None:
-            past_k, past_v = past_kv
-            k = torch.cat([past_k, k], dim=2)  # 在序列维度拼接
-            v = torch.cat([past_v, v], dim=2)
-        # 保存当前 K、V供下一轮使用
-        present_kv = (k, v)
-
-        # 计算注意力分数: Q @ K^T / sqrt(d)
-        attn_score = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-        # attn_score: [batch_size, num_head, seq_len, seq_len]
-        if mask is not None:
-            attn_score = attn_score.masked_fill(mask, float("-inf"))
-
-        # Softmax + Dropout
-        attn_weights = F.softmax(attn_score, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # 注意力加权求和
-        output = attn_weights @ v
-        output = rearrange(output, "b h s d -> b s (h d)")
-        output = self.out_proj(output)
-        output = self.out_dropout(output)
-        return output, present_kv
+        # 当前的实现是遍历所有专家，不涉及到单个专家的容量问题
+        # 若修改为并行处理，需要引入单个专家的capacity，防止单个专家爆炸
+        # 添加负载均衡loss能够缓解此问题，但是无法根治
+        for i, expert in enumerate(self.experts):
+            # 遍历专家，找到哪些token用到了这个专家，每行代表每一个token top1/top2是否选中专家i
+            mask = (topk_indices==i) # (batch * seq_len, topk)
+            if not mask.any():
+                continue
+            # 有哪些token选中了这个专家，以及选中的顺位如何
+            token_idx, k_idx = mask.nonzero(as_tuple=True) 
+            # 专家i的输出
+            out = expert(x[token_idx])
+            # 该token对于这个专家的权重如何
+            w = weights[token_idx, k_idx].unsqueeze(-1)
+            # 专家i的加权输出
+            output[token_idx] += w * out
+        
+        output = rearrange(output, '(b t) d -> b t d', b=B, t=T)
+        return output, load_balance_loss
 
 
 class TransformerLayer(nn.Module):
@@ -127,16 +102,20 @@ class TransformerLayer(nn.Module):
     4. Skip connections
     """
 
-    def __init__(self, embedding_dim: int, num_heads: int, hidden_dim: int, dropout: float = 0.1):
+    def __init__(self, embedding_dim: int, num_heads: int, hidden_dim: int, dropout: float = 0.1, n_experts:int=8, topk:int=2):
         super().__init__()
         self.self_attn = MultiHeadSelfAttention(embedding_dim, num_heads, dropout)
         self.norm1 = nn.LayerNorm(embedding_dim)
-        self.ffn = nn.Sequential(
+        self.n_experts = n_experts
+        if n_experts > 1:
+            self.moe = MoELayer(n_experts, topk, hidden_dim, embedding_dim, dropout)
+        else:
+            self.moe = nn.Sequential(
             nn.Linear(embedding_dim, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, embedding_dim),
             nn.Dropout(dropout),
-        )
+            )
         self.norm2 = nn.LayerNorm(embedding_dim)
 
     def forward(
@@ -144,7 +123,7 @@ class TransformerLayer(nn.Module):
         x: torch.Tensor,
         mask: torch.Tensor = None,
         past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
         """
         Args:
             x: 输入张量
@@ -154,16 +133,23 @@ class TransformerLayer(nn.Module):
         Returns:
             x: 处理后的输出
             present_kv: 当前轮的 KV（含缓存），用于下一轮
+            aux_loss: MoE 负载均衡 loss（如果不是 MoE 则为 0）
         """
         # Self-attention + 残差连接
         x_norm = self.norm1(x)
         attn_out, present_kv = self.self_attn(x_norm, mask, past_kv)
         x = x + attn_out
 
-        # FFN + 残差连接
+        # Pre-Norm + FFN/MoE + 残差连接
         x_norm = self.norm2(x)
-        x = x + self.ffn(x_norm)
-        return x, present_kv
+        if self.n_experts > 1:
+            moe_out, aux_loss = self.moe(x_norm)
+            x = x + moe_out
+        else:
+            moe_out = self.moe(x_norm)
+            x = x + moe_out
+            aux_loss = torch.tensor(0.0, device=x.device)
+        return x, present_kv, aux_loss
 
 
 class TransformerEncoder(nn.Module):
@@ -182,7 +168,7 @@ class TransformerEncoder(nn.Module):
         x: torch.Tensor,
         mask: torch.Tensor = None,
         past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
-    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         """
         Args:
             x: 输入张量
@@ -193,15 +179,18 @@ class TransformerEncoder(nn.Module):
         Returns:
             x: 处理后的输出
             present_kv_list: 各层当前轮的 KV 缓存，供下一轮使用
+            total_aux_loss: 所有层的 MoE 负载均衡 loss 总和
         """
         present_kv_list = []
+        total_aux_loss = torch.tensor(0.0, device=x.device)
         for i, layer in enumerate(self.layers):
             # 获取当前层的历史缓存（如果有）
             past_kv = past_kv_list[i] if past_kv_list is not None else None
-            # 前向传播，获取当前层的输出和新的 KV
-            x, present_kv = layer(x, mask, past_kv)
+            # 前向传播，获取当前层的输出、新的 KV 和 aux_loss
+            x, present_kv, aux_loss = layer(x, mask, past_kv)
             present_kv_list.append(present_kv)
-        return x, present_kv_list
+            total_aux_loss += aux_loss
+        return x, present_kv_list, total_aux_loss
 
 
 class SongCiGPT(nn.Module):
@@ -213,6 +202,8 @@ class SongCiGPT(nn.Module):
         hidden_dim: int = 2048,  # usually 4 times of embedding_dim
         num_head: int = 8,
         num_layers: int = 6,
+        n_experts:int=8,
+        topk:int=2,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -230,7 +221,7 @@ class SongCiGPT(nn.Module):
         #     activation="gelu",
         # )
         # self.transformer = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
-        decoder_layer = TransformerLayer(embedding_dim, num_head, hidden_dim, dropout)
+        decoder_layer = TransformerLayer(embedding_dim, num_head, hidden_dim, dropout, n_experts, topk)
         self.transformer = TransformerEncoder(decoder_layer, num_layers)
 
         self.ffn = nn.Linear(embedding_dim, vocab_size)
@@ -252,7 +243,7 @@ class SongCiGPT(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
-    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         """
         前向传播
 
@@ -264,6 +255,7 @@ class SongCiGPT(nn.Module):
         Returns:
             logits: 预测的 token 概率分布 [batch_size, seq_len, vocab_size]
             present_kv_list: 当前轮的 KV 缓存，供下一轮生成使用
+            aux_loss: MoE 负载均衡 loss（如果不是 MoE 则为 0）
         """
         batch_size, seq_len = input_ids.size()
 
@@ -290,11 +282,11 @@ class SongCiGPT(nn.Module):
             mask = causal_mask
 
         # 4. Transformer Encoder (带 KV Cache)
-        x, present_kv_list = self.transformer(x, mask, past_kv_list)
+        x, present_kv_list, aux_loss = self.transformer(x, mask, past_kv_list)
 
         # 5. 输出层：映射到词表大小
         logits = self.ffn(x)
-        return logits, present_kv_list
+        return logits, present_kv_list, aux_loss
 
     @torch.no_grad()
     def generate(
@@ -348,7 +340,7 @@ class SongCiGPT(nn.Module):
             else:
                 x = input_ids[:, -1:]  # 只取最后一个 token
 
-            logits, past_kv_list = self(x, past_kv_list=past_kv_list)
+            logits, past_kv_list, _ = self(x, past_kv_list=past_kv_list)
             logits = logits[:, -1, :]  # 只取最后一个位置的预测
 
             # 3. 温度调节
@@ -419,16 +411,17 @@ if __name__ == "__main__":
 
     # test SongCiGPT
     model = SongCiGPT()
-    # input_ids = torch.randint(0, 1000, (4, 256))
-    # attention_mask = torch.ones(4, 256).bool()
-    # attention_mask = None
-    # print(model(input_ids, attention_mask).shape)
+    input_ids = torch.randint(0, 1000, (4, 256))
+    attention_mask = torch.ones(4, 256).bool()
+    attention_mask = None
+    logits, _, aux_loss = model(input_ids, attention_mask)
+    print(f"logits shape: {logits.shape}, aux_loss: {aux_loss.item():.6f}")
 
     # test generate
-    model.load_state_dict(torch.load("ckpt/model.pt"))
+    model.load_state_dict(torch.load("scratch/ckpt/model.pt"))
     model.to("cuda")
     tokenizer = BPETokenizer()
-    tokenizer.load("ckpt/songci_tokenizer.json")
+    tokenizer.load("scratch/ckpt/songci_tokenizer.json")
     response = model.generate(tokenizer, "水调歌头", max_len=256, top_k=100, top_p=0.9)
     print(response)
     response = model.generate(tokenizer, "江城子", max_len=256, top_k=100, top_p=0.9)
