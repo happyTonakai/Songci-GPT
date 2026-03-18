@@ -2,24 +2,24 @@ from glob import glob
 
 import orjson
 import torch
-from torch.utils.data import Dataset
-
 from tokenizer import BPETokenizer
+from torch.utils.data import Dataset
 
 
 class SongCiDataset(Dataset):
     def __init__(self, max_seq_len=256):
 
-        files = glob("./dataset/宋词/*.json")
+        files = glob("./scratch/dataset/宋词/*.json")
         raw_text = []
         for file in files:
             with open(file, "rb") as f:
                 data = orjson.loads(f.read())
                 raw_text += [
-                    item["rhythmic"] + "<sep>" + "".join(item["paragraphs"]) for item in data
+                    item["rhythmic"] + "<sep>" + "".join(item["paragraphs"])
+                    for item in data
                 ]
         self.tokenizer = BPETokenizer()
-        self.tokenizer.load("scratch/ckpt/songci_tokenizer.json")
+        self.tokenizer.load("./scratch/ckpt/songci_tokenizer.json")
         bos_id = [self.tokenizer.bos_id]
         eos_id = [self.tokenizer.eos_id]
         pad_id = [self.tokenizer.pad_id]
@@ -28,7 +28,9 @@ class SongCiDataset(Dataset):
         for text in raw_text:
             tokens = self.tokenizer.encode(text)
             if len(tokens) + 2 <= max_seq_len:
-                tokens = bos_id + tokens + eos_id + pad_id * (max_seq_len - len(tokens) - 2)
+                tokens = (
+                    bos_id + tokens + eos_id + pad_id * (max_seq_len - len(tokens) - 2)
+                )
                 data.append(torch.Tensor(tokens).long())
         self.data = torch.stack(data)
 
@@ -54,7 +56,11 @@ class SongCiDataset(Dataset):
 
         labels[labels == self.tokenizer.pad_id] = -100
 
-        return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
 
 
 if __name__ == "__main__":

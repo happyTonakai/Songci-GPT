@@ -17,7 +17,15 @@ class BPETokenizer:
         self.id2token: dict[int, str] = {}
         self.id = 0
         # Initialize special tokens
-        self.special_tokens = ["<bos>", "<eos>", "<unknown>", "</w>", "<mask>", "<sep>", "<pad>"]
+        self.special_tokens = [
+            "<bos>",
+            "<eos>",
+            "<unknown>",
+            "</w>",
+            "<mask>",
+            "<sep>",
+            "<pad>",
+        ]
         for token in self.special_tokens:
             self._add_to_vocab(token)
         self.bos_id = self.encode("<bos>")
@@ -51,7 +59,11 @@ class BPETokenizer:
         return new_sequence
 
     def train(
-        self, text_list: list[str], vocab_size: int, max_itr: int, chinese_only: bool = False
+        self,
+        text_list: list[str],
+        vocab_size: int,
+        max_itr: int,
+        chinese_only: bool = False,
     ) -> None:
         self.vocab_size = vocab_size
 
@@ -104,7 +116,9 @@ class BPETokenizer:
                     pair = (sequence[i], sequence[i + 1])  # ('h', 'e')
                     pair_count[pair] = pair_count.get(pair, 0) + 1
 
-            if not pair_count:  # 所有组合都已经在词表中，没有可以继续合并的对了，停止训练
+            if (
+                not pair_count
+            ):  # 所有组合都已经在词表中，没有可以继续合并的对了，停止训练
                 print("所有组合都已经在词表中，没有可以继续合并的对了，停止训练")
                 break
 
@@ -136,13 +150,17 @@ class BPETokenizer:
             # 尝试匹配特殊标记
             for st_token in self.special_tokens:
                 if text[i:].startswith(st_token):
-                    encoded_ids.append(self.token2id.get(st_token, self.token2id["<unknown>"]))
+                    encoded_ids.append(
+                        self.token2id.get(st_token, self.token2id["<unknown>"])
+                    )
                     i += len(st_token)
                     matched = True
                     break
             if not matched:
                 # 如果没有匹配到特殊标记，则按单个字符处理
-                encoded_ids.append(self.token2id.get(text[i], self.token2id["<unknown>"]))
+                encoded_ids.append(
+                    self.token2id.get(text[i], self.token2id["<unknown>"])
+                )
                 i += 1
         return encoded_ids
 
@@ -157,7 +175,8 @@ class BPETokenizer:
         if "id" in state_dict:
             del state_dict["id"]
         json_bytes = orjson.dumps(
-            state_dict, option=orjson.OPT_INDENT_2  # 可选：格式化输出（缩进2个空格），方便阅读
+            state_dict,
+            option=orjson.OPT_INDENT_2,  # 可选：格式化输出（缩进2个空格），方便阅读
         )
         with open(path, "wb") as f:
             f.write(json_bytes)
@@ -181,14 +200,14 @@ def test_replace_new_token():
 
 def train_simple_tokenizer():
     tokenizer = BPETokenizer()
-    with open("./dataset/train-en.txt", "r", encoding="utf-8") as f:
+    with open("./scratch/dataset/train-en.txt", "r", encoding="utf-8") as f:
         en_text_list = f.readlines()
-    with open("./dataset/train-zh.txt", "r", encoding="utf-8") as f:
+    with open("./scratch/dataset/train-zh.txt", "r", encoding="utf-8") as f:
         zh_text_list = f.readlines()
     tokenizer.train(en_text_list + zh_text_list, vocab_size=5000, max_itr=1000)
 
-    tokenizer.save("./ckpt/tokenizer.json")
-    tokenizer.load("./ckpt/tokenizer.json")
+    tokenizer.save("./scratch/ckpt/tokenizer.json")
+    tokenizer.load("./scratch/ckpt/tokenizer.json")
     test_text = "hello world! 你好世界。"
     token_ids = tokenizer.encode(test_text)
     print(token_ids)
@@ -204,10 +223,13 @@ def train_songci_tokenizer():
     tokenizer = BPETokenizer()  # 初始化词表大小 6103
 
     dataset = []
-    for file in glob("./dataset/宋词/*.json"):
+    for file in glob("./scratch/dataset/宋词/*.json"):
         with open(file, "rb") as f:
             data = orjson.loads(f.read())
-            dataset += [item["rhythmic"] + "<sep>" + "".join(item["paragraphs"]) for item in data]
+            dataset += [
+                item["rhythmic"] + "<sep>" + "".join(item["paragraphs"])
+                for item in data
+            ]
 
     try:
         tokenizer.train(dataset, 10000, 1000)
@@ -216,8 +238,8 @@ def train_songci_tokenizer():
     except Exception as e:
         print(f"训练发生错误：{e}，准备保存词表")
     finally:
-        tokenizer.save("./ckpt/songci_tokenizer.json")
-        tokenizer.load("./ckpt/songci_tokenizer.json")
+        tokenizer.save("./scratch/ckpt/songci_tokenizer.json")
+        tokenizer.load("./scratch/ckpt/songci_tokenizer.json")
         test_text = "春江潮水连海平，海上明月共潮生。"
         token_ids = tokenizer.encode(test_text)
         print(token_ids)
@@ -226,7 +248,6 @@ def train_songci_tokenizer():
 
 
 if __name__ == "__main__":
-
     # train_simple_tokenizer()
 
     train_songci_tokenizer()

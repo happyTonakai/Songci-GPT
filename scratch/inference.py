@@ -1,13 +1,12 @@
 import torch
 from fire import Fire
-
 from model import SongCiGPT
 from tokenizer import BPETokenizer
 
 
-def inference(ckpt: str = "scratch/ckpt/model.pt"):
+def inference(ckpt: str = "./scratch/ckpt/model.pt"):
     tokenizer = BPETokenizer()
-    tokenizer.load("scratch/ckpt/songci_tokenizer.json")
+    tokenizer.load("./scratch/ckpt/songci_tokenizer.json")
     model = SongCiGPT()
     model.load_state_dict(torch.load(ckpt, weights_only=True))
     model.to("cuda")

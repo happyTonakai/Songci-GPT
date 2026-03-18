@@ -1,10 +1,10 @@
 import torch
 import torch.nn.functional as F
-from torch import nn
-from einops import rearrange
-
-from tokenizer import BPETokenizer
 from attention import MultiHeadSelfAttention
+from einops import rearrange
+from tokenizer import BPETokenizer
+from torch import nn
+
 
 class PositionalEmbedding(nn.Module):
     """
@@ -31,36 +31,52 @@ class PositionalEmbedding(nn.Module):
         """
         seq_len = x.size(1)
         # 生成位置索引：从 offset 开始，避免与历史位置重复
-        positions = torch.arange(offset, offset + seq_len, dtype=torch.long, device=x.device)
+        positions = torch.arange(
+            offset, offset + seq_len, dtype=torch.long, device=x.device
+        )
         pos_emb = self.embedding(positions.unsqueeze(0))
         return x + pos_emb
 
+
 class MoELayer(nn.Module):
-    def __init__(self, n_experts:int, topk:int, hidden_dim:int, embedding_dim:int, dropout:float, aux_loss_coef:float=0.01):
+    def __init__(
+        self,
+        n_experts: int,
+        topk: int,
+        hidden_dim: int,
+        embedding_dim: int,
+        dropout: float,
+        aux_loss_coef: float = 0.01,
+    ):
         super().__init__()
-        assert topk<=n_experts
+        assert topk <= n_experts
         self.topk = topk
         self.aux_loss_coef = aux_loss_coef
-        self.experts = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(embedding_dim, hidden_dim),
-                nn.GELU(),
-                nn.Linear(hidden_dim, embedding_dim),
-                nn.Dropout(dropout),
-            )
-         for _ in range(n_experts)])
+        self.experts = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(embedding_dim, hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(hidden_dim, embedding_dim),
+                    nn.Dropout(dropout),
+                )
+                for _ in range(n_experts)
+            ]
+        )
         self.router = nn.Linear(embedding_dim, n_experts)
 
-    def forward(self, x:torch.Tensor)->tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # x shape: (batch, seq_len, d_model)
-        B,T,D = x.shape
-        x = rearrange(x, 'b t d -> (b t) d')
+        B, T, D = x.shape
+        x = rearrange(x, "b t d -> (b t) d")
         logits = self.router(x)
-        probs = F.softmax(logits, dim=-1) # 每个token选择每个专家的概率 (n_tokens, n_experts)
-        expert_usage = probs.mean(dim=0) # 每个专家平均被选择的概率 (n_experts, )
+        probs = F.softmax(
+            logits, dim=-1
+        )  # 每个token选择每个专家的概率 (n_tokens, n_experts)
+        expert_usage = probs.mean(dim=0)  # 每个专家平均被选择的概率 (n_experts, )
         # 负载均衡loss: 希望每个专家被均匀使用，最小化方差
         load_balance_loss = (expert_usage * expert_usage).sum() * self.aux_loss_coef
-         
+
         topk_logits, topk_indices = torch.topk(logits, self.topk, dim=-1)
         weights = F.softmax(topk_logits, dim=-1)
         # 在很多主流实现（比如 Switch Transformer）中，人们倾向于对所有专家的 logits 先做 Softmax，
@@ -75,19 +91,19 @@ class MoELayer(nn.Module):
         # 添加负载均衡loss能够缓解此问题，但是无法根治
         for i, expert in enumerate(self.experts):
             # 遍历专家，找到哪些token用到了这个专家，每行代表每一个token top1/top2是否选中专家i
-            mask = (topk_indices==i) # (batch * seq_len, topk)
+            mask = topk_indices == i  # (batch * seq_len, topk)
             if not mask.any():
                 continue
             # 有哪些token选中了这个专家，以及选中的顺位如何
-            token_idx, k_idx = mask.nonzero(as_tuple=True) 
+            token_idx, k_idx = mask.nonzero(as_tuple=True)
             # 专家i的输出
             out = expert(x[token_idx])
             # 该token对于这个专家的权重如何
             w = weights[token_idx, k_idx].unsqueeze(-1)
             # 专家i的加权输出
             output[token_idx] += w * out
-        
-        output = rearrange(output, '(b t) d -> b t d', b=B, t=T)
+
+        output = rearrange(output, "(b t) d -> b t d", b=B, t=T)
         return output, load_balance_loss
 
 
@@ -102,7 +118,15 @@ class TransformerLayer(nn.Module):
     4. Skip connections
     """
 
-    def __init__(self, embedding_dim: int, num_heads: int, hidden_dim: int, dropout: float = 0.1, n_experts:int=8, topk:int=2):
+    def __init__(
+        self,
+        embedding_dim: int,
+        num_heads: int,
+        hidden_dim: int,
+        dropout: float = 0.1,
+        n_experts: int = 8,
+        topk: int = 2,
+    ):
         super().__init__()
         self.self_attn = MultiHeadSelfAttention(embedding_dim, num_heads, dropout)
         self.norm1 = nn.LayerNorm(embedding_dim)
@@ -111,10 +135,10 @@ class TransformerLayer(nn.Module):
             self.moe = MoELayer(n_experts, topk, hidden_dim, embedding_dim, dropout)
         else:
             self.moe = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, embedding_dim),
-            nn.Dropout(dropout),
+                nn.Linear(embedding_dim, hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, embedding_dim),
+                nn.Dropout(dropout),
             )
         self.norm2 = nn.LayerNorm(embedding_dim)
 
@@ -202,8 +226,8 @@ class SongCiGPT(nn.Module):
         hidden_dim: int = 2048,  # usually 4 times of embedding_dim
         num_head: int = 8,
         num_layers: int = 6,
-        n_experts:int=8,
-        topk:int=2,
+        n_experts: int = 8,
+        topk: int = 2,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -221,7 +245,9 @@ class SongCiGPT(nn.Module):
         #     activation="gelu",
         # )
         # self.transformer = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
-        decoder_layer = TransformerLayer(embedding_dim, num_head, hidden_dim, dropout, n_experts, topk)
+        decoder_layer = TransformerLayer(
+            embedding_dim, num_head, hidden_dim, dropout, n_experts, topk
+        )
         self.transformer = TransformerEncoder(decoder_layer, num_layers)
 
         self.ffn = nn.Linear(embedding_dim, vocab_size)
@@ -272,11 +298,15 @@ class SongCiGPT(nn.Module):
 
         # 3. 生成因果掩码（causal mask）
         # 确保每个位置只能看到之前的位置，实现自回归特性
-        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=x.device), diagonal=1
+        ).bool()
         if attention_mask is not None:
             # 合并 padding mask 和 causal mask
-            attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # [batch, 1, 1, seq_len]
-            causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len]
+            # [batch, 1, 1, seq_len]
+            attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+            # [1, 1, seq_len, seq_len]
+            causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
             mask = attention_mask | causal_mask
         else:
             mask = causal_mask
@@ -328,7 +358,8 @@ class SongCiGPT(nn.Module):
         # 1. 编码 prompt
         prompt_text = "<bos>" + prompt_text + "<sep>"
         input_ids = tokenizer.encode(prompt_text)
-        input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)
+        input_ids = torch.tensor(input_ids, dtype=torch.long, device=device)
+        input_ids = input_ids.unsqueeze(0)
 
         # 2. 自回归生成
         for _ in range(self.max_seq_len - len(input_ids)):

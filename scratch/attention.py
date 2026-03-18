@@ -79,7 +79,11 @@ class MultiHeadSelfAttention(nn.Module):
         return output, present_kv
 
     def _scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -108,7 +112,11 @@ class MultiHeadSelfAttention(nn.Module):
         return attn_output
 
     def _flash_attention_simulated(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         B, H, N, d = q.shape
         # 模拟 Flash Attention 的实现 https://www.bilibili.com/video/BV1UT421k7rA
