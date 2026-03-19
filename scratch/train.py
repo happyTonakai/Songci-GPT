@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from model import SongCiGPT
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -38,12 +39,14 @@ class Trainer:
                 labels = batch_dict["labels"].to(self.device)
                 attention_mask = batch_dict["attention_mask"].to(self.device)
 
-                outputs, _, aux_loss = self.model(input_ids, attention_mask)
+                logits, _, aux_loss = self.model(input_ids, attention_mask)
 
                 loss = F.cross_entropy(
-                    outputs.view(-1, outputs.shape[-1]), labels.view(-1)
+                    rearrange(logits, "b s d -> (b s) d"),
+                    rearrange(labels, "b s -> (b s)"),
                 )
-                total_loss = loss + aux_loss
+                # total_loss = loss + aux_loss
+                total_loss = self._compute_total_loss(loss, aux_loss)
                 total_loss.backward()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -62,6 +65,33 @@ class Trainer:
     def load(self, path: str):
         self.model.load_state_dict(torch.load(path, weights_only=True))
         print(f"Model loaded from {path}")
+
+    @staticmethod
+    def _compute_total_loss(
+        ce_loss: torch.Tensor, aux_loss: torch.Tensor, target_ratio: float = 0.01
+    ) -> torch.Tensor:
+        """
+        Args:
+            ce_loss: 主任务交叉熵损失 (Tensor)
+            aux_loss: MoE 负载均衡损失 (Tensor)
+            target_ratio: 你希望 aux_loss 占据总梯度的期望比例 (比如 10%)
+        """
+        # 1. 使用 detach() 提取数值，避免梯度回传到这个比例计算中
+        ce_val = ce_loss.detach().item()
+        aux_val = aux_loss.detach().item()
+
+        # 2. 防止除以 0 (刚开始训练时 aux_val 可能是 0)
+        if aux_val > 1e-8:
+            # 计算当前的动态系数
+            # 目标是：lambda * aux_val = target_ratio * ce_val
+            dynamic_lambda = target_ratio * (ce_val / aux_val)
+        else:
+            dynamic_lambda = 0.0
+
+        # 3. 这里的 dynamic_lambda 只是一个标量系数
+        total_loss = ce_loss + dynamic_lambda * aux_loss
+
+        return total_loss
 
 
 def train():

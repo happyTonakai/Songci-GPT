@@ -46,12 +46,11 @@ class MoELayer(nn.Module):
         hidden_dim: int,
         embedding_dim: int,
         dropout: float,
-        aux_loss_coef: float = 0.01,
     ):
         super().__init__()
         assert topk <= n_experts
         self.topk = topk
-        self.aux_loss_coef = aux_loss_coef
+        self.n_experts = n_experts
         self.experts = nn.ModuleList(
             [
                 nn.Sequential(
@@ -70,18 +69,35 @@ class MoELayer(nn.Module):
         B, T, D = x.shape
         x = rearrange(x, "b t d -> (b t) d")
         logits = self.router(x)
-        probs = F.softmax(
-            logits, dim=-1
-        )  # 每个token选择每个专家的概率 (n_tokens, n_experts)
-        expert_usage = probs.mean(dim=0)  # 每个专家平均被选择的概率 (n_experts, )
-        # 负载均衡loss: 希望每个专家被均匀使用，最小化方差
-        load_balance_loss = (expert_usage * expert_usage).sum() * self.aux_loss_coef
+        # Noisy Top-k Gating 在训练过程中强制添加噪声
+        if self.training:
+            noise = torch.randn_like(logits) * (1.0 / self.n_experts)  # 注入噪声
+            logits = logits + noise
 
+        # 计算专家路由负载均衡loss
+        # 每个token选择每个专家的概率 (n_tokens, n_experts)
+        probs = F.softmax(logits, dim=-1)
+        P = probs.mean(dim=0)  # 每个专家平均被选择的概率 (n_experts, )
+        # 负载均衡loss: 希望每个专家被均匀使用，最小化方差
+        # soft constrain: minimize the L2 norm of the expert usage, 训练结果是主loss下降但是aux loss没有下降
+        # load_balance_loss = (P * P).sum()
+        # KL constrain: encourage the expert usage to be uniform
+        # load_balance_loss = (P * (P.log() - torch.log(1 / self.n_experts))).sum()
+        # 软约束都存在一个问题，就是：概率接近均匀 ≠ 选择接近均匀
+        # 如果大部分token的专家选择都是 [0.26, 0.25, 0.25, 0.24]，哪怕概率非常接近均匀分布，但专家0依然被疯狂选中，造成collapse
+        # 因此switch transformer中提出的双重约束，即同时约束概率和频次
+
+        # 计算每个专家实际被选中为topk的频率
         topk_logits, topk_indices = torch.topk(logits, self.topk, dim=-1)
+        f = F.one_hot(topk_indices, num_classes=self.n_experts).float().mean(dim=0)
+        # 乘以 n_experts 是为了让 loss 的量级不随专家数量变化
+        # !f hard 这个分支是没有梯度的
+        load_balance_loss = self.n_experts * (f * P).sum()
+
+        # 进入专家路由
         weights = F.softmax(topk_logits, dim=-1)
         # 在很多主流实现（比如 Switch Transformer）中，人们倾向于对所有专家的 logits 先做 Softmax，
         # 然后再取 Top-K。如果先取 Top-K 再 Softmax，会放大这 $K$ 个专家之间的差距
-        #
 
         # weighted sum of experts outputs
         output = torch.zeros_like(x, device=x.device)
@@ -214,7 +230,8 @@ class TransformerEncoder(nn.Module):
             x, present_kv, aux_loss = layer(x, mask, past_kv)
             present_kv_list.append(present_kv)
             total_aux_loss += aux_loss
-        return x, present_kv_list, total_aux_loss
+        return x, present_kv_list, total_aux_loss / len(self.layers)
+        # ! divided by num_layers so that if aux_loss -> 1.0 means load balance
 
 
 class SongCiGPT(nn.Module):
@@ -226,8 +243,8 @@ class SongCiGPT(nn.Module):
         hidden_dim: int = 2048,  # usually 4 times of embedding_dim
         num_head: int = 8,
         num_layers: int = 6,
-        n_experts: int = 8,
-        topk: int = 2,
+        n_experts: int = 4,
+        topk: int = 1,
         dropout: float = 0.1,
     ):
         super().__init__()

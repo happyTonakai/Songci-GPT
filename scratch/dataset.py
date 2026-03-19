@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 class SongCiDataset(Dataset):
     def __init__(self, max_seq_len=256):
 
-        files = glob("./scratch/dataset/宋词/*.json")
+        files = glob("./dataset/宋词/*.json")
         raw_text = []
         for file in files:
             with open(file, "rb") as f:
