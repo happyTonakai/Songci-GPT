@@ -188,7 +188,8 @@ class TransformerLayer(nn.Module):
         else:
             moe_out = self.moe(x_norm)
             x = x + moe_out
-            aux_loss = torch.tensor(0.0, device=x.device)
+            # 这里写1是为了和上面MoE的loss对齐，=1的时候代表各专家已经负载均衡
+            aux_loss = torch.tensor(1.0, device=x.device)
         return x, present_kv, aux_loss
 
 
@@ -199,9 +200,9 @@ class TransformerEncoder(nn.Module):
     管理多个 TransformerLayer，并处理 KV Cache 在各层之间的传递
     """
 
-    def __init__(self, layer: TransformerLayer, num_layers: int):
+    def __init__(self, layers: list[TransformerLayer]):
         super().__init__()
-        self.layers = nn.ModuleList([layer for _ in range(num_layers)])
+        self.layers = nn.ModuleList(layers)
 
     def forward(
         self,
@@ -262,10 +263,15 @@ class SongCiGPT(nn.Module):
         #     activation="gelu",
         # )
         # self.transformer = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
-        decoder_layer = TransformerLayer(
+        moe_layer = TransformerLayer(
             embedding_dim, num_head, hidden_dim, dropout, n_experts, topk
         )
-        self.transformer = TransformerEncoder(decoder_layer, num_layers)
+        dense_layer = TransformerLayer(
+            embedding_dim, num_head, hidden_dim, dropout, 1, 1
+        )
+        decoder_layers = [dense_layer, moe_layer] * (num_layers // 2)
+        decoder_layers[-1] = dense_layer  # 最后一层是dense
+        self.transformer = TransformerEncoder(decoder_layers)
 
         self.ffn = nn.Linear(embedding_dim, vocab_size)
         self.apply(self._init_weights)
