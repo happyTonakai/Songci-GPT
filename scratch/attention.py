@@ -1,12 +1,34 @@
-import math
-
 import torch
 import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
 
-class MultiHeadSelfAttention(nn.Module):
+def apply_rotary_embedding(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+    # x: [batch, num_head, seq_len, head_dim]
+    # freqs_cis: [seq_len, head_dim // 2]  (预计算好的复数旋转因子)
+    # 核心操作为将x两两分组，并与旋转因子相乘
+
+    # 1. 将 x 拆分为偶数和奇数部分
+    x = rearrange(x, "b h s (d two) -> b h s d two", two=2)
+
+    # 2. 转换为复数形式
+    x = torch.view_as_complex(x.contiguous())
+
+    # 3. 应用旋转
+    freqs_cis = rearrange(freqs_cis, "s d -> 1 1 s d")
+    x = x * freqs_cis
+
+    # 4. 转换回实数形式
+    x = torch.view_as_real(x)
+
+    # 5. 拼接偶数和奇数部分
+    x = rearrange(x, "b h s d two -> b h s (d two)")
+
+    return x
+
+
+class MultiHeadAttention(nn.Module):
     """
     Multi-head Self-Attention with KV Cache Support
 
@@ -35,9 +57,9 @@ class MultiHeadSelfAttention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freqs_cis: torch.Tensor,
         mask: torch.Tensor | None = None,
         past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-        use_flash_attn: bool = False,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
         Args:
@@ -60,6 +82,13 @@ class MultiHeadSelfAttention(nn.Module):
         k = rearrange(k, "b s (h d) -> b h s d", h=self.num_head)
         v = rearrange(v, "b s (h d) -> b h s d", h=self.num_head)
 
+        # Apply rotary embedding
+        s = q.size(2)
+        offset = past_kv[0].size(2) if past_kv is not None else 0
+        current_freqs_cis = freqs_cis[offset : offset + s]
+        q = apply_rotary_embedding(q, current_freqs_cis)
+        k = apply_rotary_embedding(k, current_freqs_cis)
+
         # KV Cache: 将新计算的 K、V与历史缓存拼接
         # 这样注意力计算可以一次性处理所有历史 token
         if past_kv is not None:
@@ -69,10 +98,7 @@ class MultiHeadSelfAttention(nn.Module):
         # 保存当前 K、V供下一轮使用
         present_kv = (k, v)
 
-        if use_flash_attn:
-            output = self._flash_attention_simulated(q, k, v, mask)
-        else:
-            output = self._scaled_dot_product_attention(q, k, v, mask)
+        output = self._scaled_dot_product_attention(q, k, v, mask)
         output = rearrange(output, "b h s d -> b s (h d)")
         output = self.out_proj(output)
         output = self.out_dropout(output)
@@ -111,28 +137,31 @@ class MultiHeadSelfAttention(nn.Module):
         attn_output = attn_weights @ v
         return attn_output
 
-    def _flash_attention_simulated(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        B, H, N, d = q.shape
-        # 模拟 Flash Attention 的实现 https://www.bilibili.com/video/BV1UT421k7rA
-        # Matrices QKV shape N*d, On-chip SRAM size M, typically M=64k~128k, 65536 or 131072
-        # Set block sizes B_c = ceil(M/4d), B_r = min(ceil(M/4d), d)
-        # Divide Q into T_r = ceil(N/B_r) blocks, K, V into T_c = ceil(N/B_c) blocks
-        M = 65536
-        B_c = math.ceil(M / (4 * d * 2))  # * 2 bytes per bf16
-        B_r = min(math.ceil(M / (4 * d * 2)), d)
-        # 1. KV在外循环，Q在内循环
-        raise NotImplementedError
+    # def _flash_attention_simulated(
+    #     self,
+    #     q: torch.Tensor,
+    #     k: torch.Tensor,
+    #     v: torch.Tensor,
+    #     mask: torch.Tensor | None = None,
+    # ) -> torch.Tensor:
+    #     B, H, N, d = q.shape
+    #     # 模拟 Flash Attention 的实现 https://www.bilibili.com/video/BV1UT421k7rA
+    #     # Matrices QKV shape N*d, On-chip SRAM size M, typically M=64k~128k, 65536 or 131072
+    #     # Set block sizes B_c = ceil(M/4d), B_r = min(ceil(M/4d), d)
+    #     # Divide Q into T_r = ceil(N/B_r) blocks, K, V into T_c = ceil(N/B_c) blocks
+    #     M = 65536
+    #     B_c = math.ceil(M / (4 * d * 2))  # * 2 bytes per bf16
+    #     B_r = min(math.ceil(M / (4 * d * 2)), d)
+    #     # 1. KV在外循环，Q在内循环
+    #     raise NotImplementedError
+
+
+class MultiheadLatentAttention(nn.Module): ...
 
 
 if __name__ == "__main__":
     # test standard self attention and flash attention
-    mha = MultiHeadSelfAttention(512, 8)
+    mha = MultiHeadAttention(512, 8)
     x = torch.randn(2, 1024, 512)
     output1, present_kv = mha(x, use_flash_attn=False)
     # output2, _ = mha(x, use_flash_attn=True)

@@ -1,41 +1,20 @@
 import torch
 import torch.nn.functional as F
-from attention import MultiHeadSelfAttention
+from attention import MultiHeadAttention
 from einops import rearrange
 from tokenizer import BPETokenizer
 from torch import nn
 
 
-class PositionalEmbedding(nn.Module):
-    """
-    Learnable Positional Embedding
-
-    支持 KV Cache 的位置编码：
-    - 在推理时使用 KV Cache，我们只生成一个新的 token
-    - 需要正确计算这个新 token 的位置索引（offset）
-    """
-
-    def __init__(self, max_seq_len: int, embedding_dim: int):
-        super().__init__()
-        self.embedding = nn.Embedding(max_seq_len, embedding_dim)
-        self.max_seq_len = max_seq_len
-
-    def forward(self, x: torch.Tensor, offset: int = 0) -> torch.Tensor:
-        """
-        Args:
-            x: 输入张量 [batch_size, seq_len, embedding_dim]
-            offset: 位置偏移量，用于 KV Cache 场景
-                   例如：之前已生成 10 个 token，新生成的 1 个 token 位置应该是 10-19
-        Returns:
-            添加位置编码后的张量
-        """
-        seq_len = x.size(1)
-        # 生成位置索引：从 offset 开始，避免与历史位置重复
-        positions = torch.arange(
-            offset, offset + seq_len, dtype=torch.long, device=x.device
-        )
-        pos_emb = self.embedding(positions.unsqueeze(0))
-        return x + pos_emb
+def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+    # dim 是 head_dim，RoPE 是成对旋转的，所以是 dim // 2
+    # 10000 ^ (-2 * i / dim)
+    freqs = theta ** (-torch.arange(0, dim, 2) / dim)
+    t = torch.arange(end)  # 位置索引 [0, 1, ..., end]
+    freqs = torch.outer(t, freqs)  # 外积，得到 [end, dim // 2] 的矩阵
+    # 变成复数形式 e^{it\theta}
+    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
+    return freqs_cis  # 形状: [max_seq_len, head_dim // 2]
 
 
 class MoELayer(nn.Module):
@@ -144,7 +123,7 @@ class TransformerLayer(nn.Module):
         topk: int = 2,
     ):
         super().__init__()
-        self.self_attn = MultiHeadSelfAttention(embedding_dim, num_heads, dropout)
+        self.self_attn = MultiHeadAttention(embedding_dim, num_heads, dropout)
         self.norm1 = nn.LayerNorm(embedding_dim)
         self.n_experts = n_experts
         if n_experts > 1:
@@ -161,12 +140,14 @@ class TransformerLayer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor = None,
+        freqs_cis: torch.Tensor,
+        mask: torch.Tensor | None = None,
         past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
         """
         Args:
             x: 输入张量
+            freqs_cis: 预计算好的复数旋转因子
             mask: 注意力掩码
             past_kv: 来自上一轮的 KV 缓存
 
@@ -177,7 +158,7 @@ class TransformerLayer(nn.Module):
         """
         # Self-attention + 残差连接
         x_norm = self.norm1(x)
-        attn_out, present_kv = self.self_attn(x_norm, mask, past_kv)
+        attn_out, present_kv = self.self_attn(x_norm, freqs_cis, mask, past_kv)
         x = x + attn_out
 
         # Pre-Norm + FFN/MoE + 残差连接
@@ -207,12 +188,14 @@ class TransformerEncoder(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freqs_cis: torch.Tensor,
         mask: torch.Tensor = None,
         past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
     ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         """
         Args:
             x: 输入张量
+            freqs_cis: 预计算好的复数旋转因子
             mask: 注意力掩码
             past_kv_list: 各层的 KV 缓存列表
                          如果为 None，表示不使用缓存（首次前向传播）
@@ -228,7 +211,7 @@ class TransformerEncoder(nn.Module):
             # 获取当前层的历史缓存（如果有）
             past_kv = past_kv_list[i] if past_kv_list is not None else None
             # 前向传播，获取当前层的输出、新的 KV 和 aux_loss
-            x, present_kv, aux_loss = layer(x, mask, past_kv)
+            x, present_kv, aux_loss = layer(x, freqs_cis, mask, past_kv)
             present_kv_list.append(present_kv)
             total_aux_loss += aux_loss
         return x, present_kv_list, total_aux_loss / len(self.layers)
@@ -251,7 +234,24 @@ class SongCiGPT(nn.Module):
         super().__init__()
         self.max_seq_len = max_seq_len
         self.emb = nn.Embedding(vocab_size, embedding_dim)
-        self.pos_emb = PositionalEmbedding(max_seq_len, embedding_dim)
+        # self.pos_emb = PositionalEmbedding(max_seq_len, embedding_dim)
+        freqs_cis = precompute_freqs_cis(embedding_dim // num_head, max_seq_len)
+        self.register_buffer("freqs_cis", freqs_cis, persistent=False)
+
+        decoder_layers = []
+
+        for i in range(num_layers):
+            if i % 2 == 1 and i != num_layers - 1:
+                num_experts = n_experts
+            else:
+                num_experts = 1  # 最后一层是dense
+            layer = TransformerLayer(
+                embedding_dim, num_head, hidden_dim, dropout, num_experts, topk
+            )
+            decoder_layers.append(layer)
+
+        self.transformer = TransformerEncoder(decoder_layers)
+
         # 使用 nn.TransformerEncoderLayer 更符合 Decoder-only 结构
         # 它只包含自注意力和前馈网络，没有交叉注意力
         # decoder_layer = nn.TransformerEncoderLayer(
@@ -263,15 +263,6 @@ class SongCiGPT(nn.Module):
         #     activation="gelu",
         # )
         # self.transformer = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
-        moe_layer = TransformerLayer(
-            embedding_dim, num_head, hidden_dim, dropout, n_experts, topk
-        )
-        dense_layer = TransformerLayer(
-            embedding_dim, num_head, hidden_dim, dropout, 1, 1
-        )
-        decoder_layers = [dense_layer, moe_layer] * (num_layers // 2)
-        decoder_layers[-1] = dense_layer  # 最后一层是dense
-        self.transformer = TransformerEncoder(decoder_layers)
 
         self.ffn = nn.Linear(embedding_dim, vocab_size)
         self.apply(self._init_weights)
@@ -313,11 +304,11 @@ class SongCiGPT(nn.Module):
 
         # 2. Positional Embedding with KV Cache support
         # 计算已缓存的序列长度，用于正确生成新 token 的位置编码
-        past_length = 0
-        if past_kv_list is not None:
-            # past_kv_list[0][0] 是第 0 层缓存的 K，shape 为 [batch, num_head, past_seq_len, head_dim]
-            past_length = past_kv_list[0][0].size(2)
-        x = self.pos_emb(x, offset=past_length)
+        # past_length = 0
+        # if past_kv_list is not None:
+        #     # past_kv_list[0][0] 是第 0 层缓存的 K，shape 为 [batch, num_head, past_seq_len, head_dim]
+        #     past_length = past_kv_list[0][0].size(2)
+        # x = self.pos_emb(x, offset=past_length)
 
         # 3. 生成因果掩码（causal mask）
         # 确保每个位置只能看到之前的位置，实现自回归特性
@@ -335,7 +326,9 @@ class SongCiGPT(nn.Module):
             mask = causal_mask
 
         # 4. Transformer Encoder (带 KV Cache)
-        x, present_kv_list, aux_loss = self.transformer(x, mask, past_kv_list)
+        x, present_kv_list, aux_loss = self.transformer(
+            x, self.freqs_cis, mask, past_kv_list
+        )
 
         # 5. 输出层：映射到词表大小
         logits = self.ffn(x)
@@ -458,10 +451,10 @@ class SongCiGPT(nn.Module):
 
 if __name__ == "__main__":
     # test positional embedding
-    emb = PositionalEmbedding(256, 512)
+    # emb = PositionalEmbedding(256, 512)
 
-    x = torch.rand(32, 256, 512)
-    print(emb(x).shape)
+    # x = torch.rand(32, 256, 512)
+    # print(emb(x).shape)
 
     # test SongCiGPT
     model = SongCiGPT()
