@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
-from attention import MultiHeadAttention, precompute_freqs_cis
+from attention import MultiHeadAttention, MultiheadLatentAttention, precompute_freqs_cis
+from config import ModelConfig
 from einops import rearrange
 from tokenizer import BPETokenizer
 from torch import nn
@@ -110,9 +113,19 @@ class TransformerLayer(nn.Module):
         dropout: float = 0.1,
         n_experts: int = 8,
         topk: int = 2,
+        use_mla: bool = False,
+        latent_dim: int | None = None,
+        rope_head_dim: int | None = None,
     ):
         super().__init__()
-        self.self_attn = MultiHeadAttention(embedding_dim, num_heads, dropout)
+        self.use_mla = use_mla
+        if use_mla:
+            assert latent_dim is not None and rope_head_dim is not None
+            self.self_attn = MultiheadLatentAttention(
+                embedding_dim, num_heads, latent_dim, rope_head_dim, dropout
+            )
+        else:
+            self.self_attn = MultiHeadAttention(embedding_dim, num_heads, dropout)
         self.norm1 = nn.LayerNorm(embedding_dim)
         self.n_experts = n_experts
         if n_experts > 1:
@@ -208,34 +221,38 @@ class TransformerEncoder(nn.Module):
 
 
 class SongCiGPT(nn.Module):
-    def __init__(
-        self,
-        vocab_size: int = 10000,
-        max_seq_len: int = 256,
-        embedding_dim: int = 512,
-        hidden_dim: int = 2048,  # usually 4 times of embedding_dim
-        num_head: int = 8,
-        num_layers: int = 6,
-        n_experts: int = 4,
-        topk: int = 1,
-        dropout: float = 0.1,
-    ):
+    def __init__(self, config: ModelConfig):
         super().__init__()
-        self.max_seq_len = max_seq_len
-        self.emb = nn.Embedding(vocab_size, embedding_dim)
+        self.config = config
+        self.max_seq_len = config.max_seq_len
+        self.emb = nn.Embedding(config.vocab_size, config.embedding_dim)
         # self.pos_emb = PositionalEmbedding(max_seq_len, embedding_dim)
-        freqs_cis = precompute_freqs_cis(embedding_dim // num_head, max_seq_len)
+
+        # MLA 使用 rope_head_dim，普通 Attention 使用 head_dim
+        if getattr(config, "use_mla", False):
+            head_dim = config.rope_head_dim
+        else:
+            head_dim = config.embedding_dim // config.num_heads
+        freqs_cis = precompute_freqs_cis(head_dim, config.max_seq_len)
         self.register_buffer("freqs_cis", freqs_cis, persistent=False)
 
         decoder_layers = []
 
-        for i in range(num_layers):
-            if i % 2 == 1 and i != num_layers - 1:
-                num_experts = n_experts
+        for i in range(config.num_layers):
+            if i % 2 == 1 and i != config.num_layers - 1:
+                num_experts = config.n_experts
             else:
                 num_experts = 1  # 最后一层是dense
             layer = TransformerLayer(
-                embedding_dim, num_head, hidden_dim, dropout, num_experts, topk
+                config.embedding_dim,
+                config.num_heads,
+                config.hidden_dim,
+                config.dropout,
+                num_experts,
+                config.topk,
+                use_mla=getattr(config, "use_mla", False),
+                latent_dim=getattr(config, "latent_dim", None),
+                rope_head_dim=getattr(config, "rope_head_dim", None),
             )
             decoder_layers.append(layer)
 
@@ -253,7 +270,7 @@ class SongCiGPT(nn.Module):
         # )
         # self.transformer = nn.TransformerEncoder(decoder_layer, num_layers=num_layers)
 
-        self.ffn = nn.Linear(embedding_dim, vocab_size)
+        self.ffn = nn.Linear(config.embedding_dim, config.vocab_size)
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -439,6 +456,8 @@ class SongCiGPT(nn.Module):
 
 
 if __name__ == "__main__":
+    from config import ModelConfig
+
     # test positional embedding
     # emb = PositionalEmbedding(256, 512)
 
@@ -446,7 +465,18 @@ if __name__ == "__main__":
     # print(emb(x).shape)
 
     # test SongCiGPT
-    model = SongCiGPT()
+    config = ModelConfig(
+        vocab_size=10000,
+        max_seq_len=256,
+        embedding_dim=512,
+        hidden_dim=2048,
+        num_heads=8,
+        num_layers=6,
+        n_experts=4,
+        topk=1,
+        dropout=0.1,
+    )
+    model = SongCiGPT(config)
     input_ids = torch.randint(0, 1000, (4, 256))
     attention_mask = torch.ones(4, 256).bool()
     attention_mask = None
@@ -454,11 +484,11 @@ if __name__ == "__main__":
     print(f"logits shape: {logits.shape}, aux_loss: {aux_loss.item():.6f}")
 
     # test generate
-    model.load_state_dict(torch.load("scratch/ckpt/model.pt"))
-    model.to("cuda")
-    tokenizer = BPETokenizer()
-    tokenizer.load("scratch/ckpt/songci_tokenizer.json")
-    response = model.generate(tokenizer, "水调歌头", max_len=256, top_k=100, top_p=0.9)
-    print(response)
-    response = model.generate(tokenizer, "江城子", max_len=256, top_k=100, top_p=0.9)
-    print(response)
+    # model.load_state_dict(torch.load("scratch/ckpt/model.pt"))
+    # model.to("cuda")
+    # tokenizer = BPETokenizer()
+    # tokenizer.load("scratch/ckpt/songci_tokenizer.json")
+    # response = model.generate(tokenizer, "水调歌头", max_len=256, top_k=100, top_p=0.9)
+    # print(response)
+    # response = model.generate(tokenizer, "江城子", max_len=256, top_k=100, top_p=0.9)
+    # print(response)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from glob import glob
 
 import orjson
@@ -7,9 +9,11 @@ from torch.utils.data import Dataset
 
 
 class SongCiDataset(Dataset):
-    def __init__(self, max_seq_len=256):
+    def __init__(self, config):
+        self.config = config
+        max_seq_len = config.max_seq_len
 
-        files = glob("./dataset/宋词/*.json")
+        files = glob(f"{config.data_path}/*.json")
         raw_text = []
         for file in files:
             with open(file, "rb") as f:
@@ -19,7 +23,7 @@ class SongCiDataset(Dataset):
                     for item in data
                 ]
         self.tokenizer = BPETokenizer()
-        self.tokenizer.load("./scratch/ckpt/songci_tokenizer.json")
+        self.tokenizer.load(config.tokenizer_path)
         bos_id = [self.tokenizer.bos_id]
         eos_id = [self.tokenizer.eos_id]
         pad_id = [self.tokenizer.pad_id]
@@ -64,10 +68,17 @@ class SongCiDataset(Dataset):
 
 
 if __name__ == "__main__":
+    from config import DataConfig
     from torch.utils.data import DataLoader
     from tqdm import tqdm
 
-    dataset = SongCiDataset()
+    config = DataConfig(
+        data_path="./dataset/宋词",
+        tokenizer_path="./scratch/ckpt/songci_tokenizer.json",
+        max_seq_len=256,
+        num_workers=8,
+    )
+    dataset = SongCiDataset(config)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
     print(len(dataset))
     for i, batch_dict in enumerate(tqdm(dataloader)):

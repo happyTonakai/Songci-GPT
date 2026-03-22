@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
 from einops import rearrange
@@ -195,7 +197,7 @@ class MultiheadLatentAttention(nn.Module):
         self.k_up_proj = nn.Linear(latent_dim, embedding_dim)
         self.v_up_proj = nn.Linear(latent_dim, embedding_dim)
         # ! shared k rope, but q rope is different
-        # ! k rope 的作用是提供“我是第几个位置”的信息。
+        # ! k rope 的作用是提供"我是第几个位置"的信息。
         # ! 对于同一个 Token，无论哪个 Attention Head 来读取它，它的位置信息（第n个位置）是客观一致的。
         # ! 但是q rope 是主动发起询问的一方，不可以在所有头之间共享位置，会丧失多头注意力的多样性
         self.k_rope_proj = nn.Linear(latent_dim, rope_head_dim)
@@ -268,8 +270,6 @@ class MultiheadLatentAttention(nn.Module):
 
 
 if __name__ == "__main__":
-    from model import precompute_freqs_cis
-
     d_model = 512
     num_head = 8
     max_seq_len = 1024
