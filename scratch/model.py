@@ -1,20 +1,9 @@
 import torch
 import torch.nn.functional as F
-from attention import MultiHeadAttention
+from attention import MultiHeadAttention, precompute_freqs_cis
 from einops import rearrange
 from tokenizer import BPETokenizer
 from torch import nn
-
-
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
-    # dim 是 head_dim，RoPE 是成对旋转的，所以是 dim // 2
-    # 10000 ^ (-2 * i / dim)
-    freqs = theta ** (-torch.arange(0, dim, 2) / dim)
-    t = torch.arange(end)  # 位置索引 [0, 1, ..., end]
-    freqs = torch.outer(t, freqs)  # 外积，得到 [end, dim // 2] 的矩阵
-    # 变成复数形式 e^{it\theta}
-    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
-    return freqs_cis  # 形状: [max_seq_len, head_dim // 2]
 
 
 class MoELayer(nn.Module):
@@ -189,7 +178,7 @@ class TransformerEncoder(nn.Module):
         self,
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
-        mask: torch.Tensor = None,
+        mask: torch.Tensor | None = None,
         past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
     ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
         """
