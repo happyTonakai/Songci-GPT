@@ -7,7 +7,10 @@
 本项目实现了一个从零开始的 GPT 模型，用于宋词生成。主要特点：
 
 - **自定义 BPE 分词器**：支持中英文混合分词，使用 `jieba` 进行中文分词
-- **Decoder-only Transformer 架构**：基于 PyTorch 实现，包含可学习的位置编码
+- **Decoder-only Transformer 架构**：基于 PyTorch 实现，使用 RoPE 旋转位置编码
+- **MoE (Mixture of Experts)**：支持交错式 MoE 层，提升模型容量
+- **MLA (Multi-head Latent Attention)**：可选的 MLA 注意力机制，降低 KV Cache 内存占用
+- **YAML 配置驱动**：训练和推理均通过 YAML 配置文件管理，便于实验复现
 - **宋词数据集**：使用宋词 JSON 数据进行训练，支持根据词牌名生成宋词
 - **灵活的采样策略**：支持 temperature、top-k、top-p 等采样方法
 
@@ -15,11 +18,16 @@
 
 ```
 gpt/
-├── model.py           # GPT 模型定义
+├── model.py           # GPT 模型定义（支持 MoE 和 MLA）
+├── attention.py       # 注意力机制（MHA 和 MLA 实现）
+├── config.py          # YAML 配置管理
 ├── tokenizer.py       # BPE 分词器实现
 ├── dataset.py         # 数据集加载和预处理
-├── train.py           # 训练脚本
-├── inference.py       # 交互式推理脚本
+├── train.py           # 训练脚本（支持 YAML 配置）
+├── inference.py       # 交互式推理脚本（支持 YAML 配置）
+├── configs/           # 配置文件目录
+│   ├── mha.yaml       # 标准 Multi-Head Attention 配置
+│   └── mla.yaml       # Multi-head Latent Attention 配置
 ├── dataset/           # 训练数据
 │   ├── train-en.txt   # 英文训练语料
 │   ├── train-zh.txt   # 中文训练语料
@@ -56,31 +64,76 @@ uv run python scratch/tokenizer.py
 - 训练一个词表大小为 10000 的 BPE 分词器
 - 保存到 `ckpt/songci_tokenizer.json`
 
-### 2. 训练模型
+### 2. 配置文件
 
-训练 GPT 模型：
+项目使用 YAML 配置文件管理训练和推理参数。配置文件示例：
+
+**configs/mha.yaml**（标准 Multi-Head Attention）：
+```yaml
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 6
+  n_experts: 4        # MoE 专家数量
+  topk: 1             # 每个 token 选择的专家数
+  use_mla: false      # 不使用 MLA
+
+train:
+  batch_size: 32
+  learning_rate: 0.0001
+  epochs: 100
+  ckpt_path: "./scratch/ckpt/mha.pt"
+```
+
+**configs/mla.yaml**（Multi-head Latent Attention）：
+```yaml
+model:
+  use_mla: true       # 启用 MLA
+  latent_dim: 64      # 压缩后的潜在维度
+  rope_head_dim: 16   # RoPE 维度
+  # ... 其他配置
+```
+
+### 3. 训练模型
+
+使用默认配置（MHA）训练：
 
 ```bash
 uv run python scratch/train.py
 ```
 
-训练参数：
-- 模型参数：vocab_size=10000, max_seq_len=256, embedding_dim=512, hidden_dim=2048, num_head=8, num_layers=6
+使用 MLA 配置训练：
+
+```bash
+uv run python scratch/train.py --config_path=./scratch/configs/mla.yaml
+```
+
+训练参数（在 YAML 中配置）：
+- 模型参数：vocab_size=10000, max_seq_len=256, embedding_dim=512, hidden_dim=2048, num_heads=8, num_layers=6
+- MoE 配置：n_experts=4, topk=1（奇数层使用 MoE，偶数层和最后一层使用 Dense）
+- MLA 配置（可选）：latent_dim=64, rope_head_dim=16
 - 训练轮数：100 epochs
 - Batch size：32
 - 学习率：1e-4
 - 每 20 轮保存一次检查点
 
-模型将保存到 `ckpt/model.pt`
-
-### 3. 生成宋词
+### 4. 生成宋词
 
 #### 方式一：交互式推理
 
-使用交互式推理脚本：
+使用默认配置推理：
 
 ```bash
 uv run python scratch/inference.py
+```
+
+使用 MLA 模型推理：
+
+```bash
+uv run python scratch/inference.py --config_path=./scratch/configs/mla.yaml
 ```
 
 输入词牌名即可生成对应的宋词，输入 `q` 退出。
@@ -116,13 +169,51 @@ print(response)
 
 ### SongCiGPT
 
-- **Embedding 层**：词嵌入 + 可学习的位置编码（支持 KV Cache）
+- **Embedding 层**：词嵌入 + RoPE 旋转位置编码（支持 KV Cache）
 - **Transformer 层**：6 层 TransformerEncoder，每层包含：
-  - 8 头自注意力机制（支持 KV Cache）
-  - 前馈网络（hidden_dim=2048）
+  - 8 头自注意力机制（支持 KV Cache，可选 MLA）
+  - 前馈网络 / MoE 层（hidden_dim=2048）
   - GELU 激活函数
   - Dropout (0.1)
 - **输出层**：线性映射到词表大小
+
+### MoE (Mixture of Experts)
+
+本项目采用**交错式 MoE 架构**：
+
+- **奇数层**（第 1、3、5 层）：使用 MoE 层，包含多个专家网络
+- **偶数层和最后一层**（第 0、2、4 层）：使用标准 Dense FFN
+
+**MoE 层特点**：
+- **专家网络**：每个专家是一个独立的 FFN（Linear → GELU → Linear）
+- **路由机制**：使用可学习的 Router 网络为每个 token 选择专家
+- **Top-k 路由**：支持选择 top-k 个专家（默认 topk=1）
+- **负载均衡损失**：通过辅助损失函数确保各专家负载均衡
+- **动态损失权重**：根据主损失和辅助损失的比例动态调整权重
+
+**为什么使用交错式 MoE？**
+- 平衡计算效率和模型容量
+- 避免所有层都使用 MoE 带来的通信开销
+- 最后一层使用 Dense 确保输出稳定性
+
+### MLA (Multi-head Latent Attention)
+
+MLA 是 DeepSeek-V2/V3 提出的注意力机制，通过压缩 KV Cache 大幅降低推理内存占用。
+
+**核心思想**：
+1. **压缩 KV**：将 Key 和 Value 压缩到低维潜在空间（latent_dim）
+2. **解耦 RoPE**：将 Query 和 Key 拆分为 Content 部分和 RoPE 部分
+   - Content 部分：走压缩路径，负责语义匹配
+   - RoPE 部分：专门携带位置信息，不被压缩
+
+**MLA vs MHA 内存对比**：
+- **MHA**：KV Cache 大小 = batch_size × num_heads × seq_len × head_dim
+- **MLA**：KV Cache 大小 = batch_size × seq_len × latent_dim（大幅降低）
+
+**配置参数**：
+- `use_mla: true`：启用 MLA
+- `latent_dim: 64`：压缩后的潜在维度（远小于 embedding_dim）
+- `rope_head_dim: 16`：RoPE 维度，用于位置编码
 
 ### KV Cache 优化
 
@@ -358,11 +449,14 @@ model.generate(tokenizer, "江城子", max_len=256, top_k=100, top_p=0.9)
 ## 技术特点
 
 1. **完整的 BPE 实现**：从零实现的 BPE 分词器，支持中英文混合
-2. **Decoder-only 架构**：使用 `nn.TransformerEncoder` 实现，更符合 GPT 的设计
-3. **可学习的位置编码**：相比固定的正弦位置编码，更灵活
-4. **KV Cache 推理优化**：自实现 KV Cache，推理速度提升 10-100 倍
-5. **高效的数据加载**：使用 `DataLoader` 的 `persistent_workers` 加速训练
-6. **灵活的生成策略**：支持多种采样方法，可调节生成质量
+2. **Decoder-only 架构**：基于 PyTorch 自定义实现，支持 MoE 和 MLA
+3. **RoPE 旋转位置编码**：替代传统位置编码，更好的长序列外推能力
+4. **交错式 MoE**：奇数层使用 MoE 提升容量，偶数层使用 Dense 保证稳定性
+5. **MLA 注意力机制**：可选的 MLA 大幅降低 KV Cache 内存占用
+6. **KV Cache 推理优化**：自实现 KV Cache，推理速度提升 10-100 倍
+7. **YAML 配置驱动**：所有参数通过配置文件管理，便于实验复现和超参调优
+8. **高效的数据加载**：使用 `DataLoader` 的 `persistent_workers` 加速训练
+9. **灵活的生成策略**：支持 temperature、top-k、top-p 等多种采样方法
 
 ## 依赖项
 
@@ -371,6 +465,9 @@ model.generate(tokenizer, "江城子", max_len=256, top_k=100, top_p=0.9)
 - `orjson`：高性能 JSON 处理
 - `tqdm`：进度条显示
 - `numpy`：数值计算
+- `pyyaml`：YAML 配置文件解析
+- `einops`：张量操作工具
+- `fire`：命令行参数解析
 
 ## 许可证
 
