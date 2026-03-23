@@ -11,11 +11,16 @@
 Songci-GPT/
 ├── scratch/              # 从零实现的 GPT 模型
 │   ├── README.md         # scratch 实现文档
-│   ├── model.py          # GPT 模型定义
+│   ├── model.py          # GPT 模型定义（支持 MoE 和 MLA）
+│   ├── attention.py      # 注意力机制（MHA 和 MLA）
+│   ├── config.py         # YAML 配置管理
 │   ├── tokenizer.py      # BPE 分词器实现
 │   ├── dataset.py        # 数据集加载和预处理
-│   ├── train.py          # 训练脚本
+│   ├── train.py          # 训练脚本（YAML 配置驱动）
 │   ├── inference.py      # 交互式推理脚本
+│   ├── configs/          # 配置文件目录
+│   │   ├── mha.yaml      # 标准 Multi-Head Attention 配置
+│   │   └── mla.yaml      # Multi-head Latent Attention 配置
 │   └── ckpt/             # 模型检查点
 │
 ├── unsloth/              # Unsloth 微调实现
@@ -37,8 +42,9 @@ Songci-GPT/
 | 基础模型 | 从零实现 | Qwen3-0.6B-Base |
 | 分词器 | 自定义 BPE | Qwen3 Tokenizer |
 | 训练方式 | 全参数微调 | LoRA (1-10% 参数) |
-| 显存优化 | KV Cache | 4-bit 量化 |
-| 适用场景 | 学习原理 | 生产部署 |
+| 显存优化 | KV Cache + MLA | 4-bit 量化 |
+| 架构特性 | MoE、RoPE、YAML 配置 | 标准 Transformer |
+| 适用场景 | 学习原理、架构实验 | 生产部署 |
 
 ## 快速开始
 
@@ -56,11 +62,17 @@ uv sync
 # 训练分词器
 uv run python scratch/tokenizer.py
 
-# 训练模型
+# 使用默认配置（MHA）训练模型
 uv run python scratch/train.py
 
-# 交互式推理
+# 使用 MLA 配置训练模型
+uv run python scratch/train.py --config_path=./scratch/configs/mla.yaml
+
+# 交互式推理（默认配置）
 uv run python scratch/inference.py
+
+# 使用 MLA 模型推理
+uv run python scratch/inference.py --config_path=./scratch/configs/mla.yaml
 ```
 
 ### 方式二：Unsloth 微调
@@ -105,9 +117,11 @@ uv run python unsloth/train_qwen_songci.py --mode infer
 
 ### Scratch 实现
 - 完整的 BPE 分词器实现（支持中英文混合分词）
-- Decoder-only Transformer 架构
+- Decoder-only Transformer 架构，支持交错式 **MoE**（Mixture of Experts）
+- **MLA**（Multi-head Latent Attention）可选，大幅降低 KV Cache 内存占用
+- **RoPE** 旋转位置编码，更好的长序列外推能力
 - 自定义 KV Cache 推理优化（推理速度提升 10-100 倍）
-- 可学习的位置编码
+- **YAML 配置驱动**，便于实验复现和超参调优
 
 ### Unsloth 微调
 - 4-bit 量化训练，大幅降低显存占用
