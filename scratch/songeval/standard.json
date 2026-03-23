@@ -1,0 +1,1720 @@
+{
+  "瑞鹤仙": {
+    "structure": [
+      5,
+      9,
+      5,
+      9,
+      4,
+      7,
+      13,
+      2,
+      12,
+      4,
+      6,
+      15,
+      11
+    ],
+    "tonal_template": [
+      "*PPZZ",
+      "Z**P**P**",
+      "PPZPZ",
+      "ZPP*Z*PPZ",
+      "PPZ*",
+      "ZP*PPZ*",
+      "ZPP*ZPP*ZZPP*",
+      "PZ",
+      "*PPZ**PPZPP*",
+      "PPZ*",
+      "**ZZP*",
+      "ZPP*Z*P*Z**PPZ*",
+      "ZPP**PPZPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 79
+  },
+  "沁园春": {
+    "structure": [
+      12,
+      17,
+      15,
+      12,
+      6,
+      8,
+      17,
+      15,
+      12
+    ],
+    "tonal_template": [
+      "**PP*******P",
+      "Z*P*Z*P*Z*P*Z*ZPP",
+      "*ZPP*P*Z*ZPP*ZP",
+      "PPZZ*P*Z*ZPP",
+      "*P*ZPP",
+      "Z*ZPP*ZP",
+      "Z*P*Z*P*Z*P*Z*ZPP",
+      "*ZPP*P*Z*ZPP*ZP",
+      "PPZZ*P*Z*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 260
+  },
+  "木兰花慢": {
+    "structure": [
+      11,
+      13,
+      14,
+      12,
+      7,
+      5,
+      13,
+      14,
+      12
+    ],
+    "tonal_template": [
+      "*PPZZ**ZZPP",
+      "Z**PP*P*Z*ZPP",
+      "PPZP*ZZ*P*ZZPP",
+      "*Z*P*Z*P*ZPP",
+      "*P*ZZPP",
+      "*ZZPP",
+      "Z**PP*P*Z*ZPP",
+      "*P*P*ZZPP*ZZPP",
+      "*Z*P*Z*P*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 47
+  },
+  "好事近": {
+    "structure": [
+      11,
+      11,
+      12,
+      11
+    ],
+    "tonal_template": [
+      "*ZZPP*Z*PP*",
+      "*Z*PPZZ*PP*",
+      "*P*ZZPP**ZP*",
+      "*Z*PPZZ*PP*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 284
+  },
+  "摸鱼儿": {
+    "structure": [
+      13,
+      13,
+      3,
+      10,
+      4,
+      14,
+      9,
+      6,
+      13,
+      3,
+      10,
+      4,
+      14
+    ],
+    "tonal_template": [
+      "ZPP*PPZ*P*ZPZ",
+      "*P*ZPPZ*Z*PPZ",
+      "P*Z",
+      "Z*Z*P*ZPPZ",
+      "PP*Z",
+      "Z**PP*P*Z*ZZPZ",
+      "PPZ*ZPP*Z",
+      "*P*ZPZ",
+      "PP*ZPPZ*Z*P*Z",
+      "P*Z",
+      "**ZPP*ZPPZ",
+      "PP*Z",
+      "Z*ZPP*P*Z*ZZPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 67
+  },
+  "满江红": {
+    "structure": [
+      11,
+      11,
+      14,
+      11,
+      6,
+      6,
+      9,
+      14,
+      11
+    ],
+    "tonal_template": [
+      "*ZPP**Z*P**",
+      "**Z*P*Z*PP*",
+      "*Z*PPZZ*P*ZPP*",
+      "Z*P*ZZPPPP*",
+      "P*ZPP*",
+      "P*ZPP*",
+      "Z*P*Z*PP*",
+      "*Z*PPZZ*P*ZPP*",
+      "Z*P*ZZPPPP*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 457
+  },
+  "浪淘沙": {
+    "structure": [
+      5,
+      4,
+      7,
+      11,
+      5,
+      4,
+      7,
+      11
+    ],
+    "tonal_template": [
+      "*ZZPP",
+      "*ZPP",
+      "*P*ZZPP",
+      "*Z*PPZZ*ZPP",
+      "*ZZPP",
+      "*ZPP",
+      "*P*ZZPP",
+      "*Z*PPZZ*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 165
+  },
+  "祝英台近": {
+    "structure": [
+      11,
+      9,
+      17,
+      3,
+      11,
+      9,
+      17
+    ],
+    "tonal_template": [
+      "ZPPPZZPZZPZ",
+      "*ZPP*ZZPZ",
+      "*P**PP*P*Z**Z*PPZ",
+      "ZPZ",
+      "***ZPPPPZPZ",
+      "*ZPP*ZZPZ",
+      "ZP*ZPP*P*Z**Z*PPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 39
+  },
+  "鹧鸪天": {
+    "structure": [
+      7,
+      7,
+      7,
+      7,
+      6,
+      7,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*ZPP*ZP",
+      "*P*ZZPP",
+      "*P*ZPPZ",
+      "*ZPPZZP",
+      "PZZZPP",
+      "*P*ZZPP",
+      "*P*ZPPZ",
+      "*ZPP*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 650
+  },
+  "水调歌头": {
+    "structure": [
+      10,
+      11,
+      17,
+      10,
+      9,
+      11,
+      17,
+      10
+    ],
+    "tonal_template": [
+      "***PZ*ZZPP",
+      "*P*Z***ZZPP",
+      "*Z*P*Z*Z*P*Z*ZZPP",
+      "*Z*PZ*ZZPP",
+      "*P*P*ZZPP",
+      "*P*Z***ZZPP",
+      "*Z*P*Z*Z*P*Z*ZZPP",
+      "*Z*PZ*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 663
+  },
+  "点绛唇": {
+    "structure": [
+      11,
+      4,
+      5,
+      9,
+      3,
+      4,
+      5
+    ],
+    "tonal_template": [
+      "*ZPP*P*ZPPZ",
+      "ZPPZ",
+      "*ZPPZ",
+      "*ZPP*ZPPZ",
+      "PPZ",
+      "*PPZ",
+      "*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 382
+  },
+  "蓦山溪": {
+    "structure": [
+      9,
+      12,
+      20,
+      9,
+      12,
+      20
+    ],
+    "tonal_template": [
+      "*P*Z*ZPPZ",
+      "*ZZPPZ**PP*Z",
+      "*P*Z*ZZPPP*Z*PP*ZPPZ",
+      "*P*Z*ZPPZ",
+      "*ZZPPZ**PP*Z",
+      "*P*Z*ZZPPP***PP*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 111
+  },
+  "贺新郎": {
+    "structure": [
+      5,
+      11,
+      13,
+      7,
+      15,
+      6,
+      7,
+      11,
+      13,
+      7,
+      15,
+      6
+    ],
+    "tonal_template": [
+      "*ZPPZ",
+      "ZPP*P***PPZ",
+      "*ZPPP*Z*ZPP*Z",
+      "**Z*PPZ",
+      "*Z*PP*ZZPP*ZPPZ",
+      "PZZ*PZ",
+      "*P*ZPPZ",
+      "ZPP*****PPZ",
+      "*Z*PP*Z*ZPP*Z",
+      "Z*ZPPPZ",
+      "*Z*PP*ZZ*P*ZPPZ",
+      "*ZZZPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 299
+  },
+  "西江月": {
+    "structure": [
+      12,
+      7,
+      6,
+      12,
+      7,
+      6
+    ],
+    "tonal_template": [
+      "*Z*P*Z*P*ZPP",
+      "*P*ZZPP",
+      "*Z*P*Z",
+      "*Z*P*Z*P*ZPP",
+      "*P*ZZPP",
+      "*Z*P*Z"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 460
+  },
+  "洞仙歌": {
+    "structure": [
+      9,
+      7,
+      18,
+      16,
+      16,
+      17
+    ],
+    "tonal_template": [
+      "*P*Z**PPZ",
+      "*ZPPZPZ",
+      "ZPP*Z*ZPPP*Z*Z*P*Z",
+      "*PPZ**ZPP*ZPPZPZ",
+      "***PP*ZPP**Z*P*Z",
+      "Z**P*ZPPZ*ZPPZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 33
+  },
+  "谒金门": {
+    "structure": [
+      3,
+      6,
+      7,
+      5,
+      6,
+      6,
+      7,
+      5
+    ],
+    "tonal_template": [
+      "PZZ",
+      "*Z*PPZ",
+      "*Z*PPZZ",
+      "*PPZZ",
+      "*Z*P*Z",
+      "*Z*PP*",
+      "*Z*PPZ*",
+      "*PPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 218
+  },
+  "喜迁莺": {
+    "structure": [
+      4,
+      9,
+      14,
+      12,
+      12,
+      2,
+      12,
+      14,
+      12,
+      12
+    ],
+    "tonal_template": [
+      "PPPZ",
+      "Z*Z***PPZ",
+      "*ZPPPP***ZZPPZ",
+      "****PZ***PPZ",
+      "Z*ZZPP*ZPPPZ",
+      "PZ",
+      "PZZ***P*ZPPZ",
+      "*ZPP*PPZ*ZZPP*",
+      "Z*ZP*Z*Z*PPZ",
+      "**ZZPP*Z*PPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 27
+  },
+  "八声甘州": {
+    "structure": [
+      13,
+      13,
+      11,
+      9,
+      15,
+      10,
+      15,
+      11
+    ],
+    "tonal_template": [
+      "ZPP*ZZPP**ZPP",
+      "ZPP***P*Z*ZPP",
+      "*ZPP*Z*ZZPP",
+      "**PPZ*ZPP",
+      "*ZPP*ZZ*P*Z*ZPP",
+      "ZPP*Z*ZZPP",
+      "ZPPPP*ZZ*P*ZZPP",
+      "PPZ*P*Z*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 82
+  },
+  "念奴娇": {
+    "structure": [
+      13,
+      13,
+      13,
+      10,
+      15,
+      13,
+      13,
+      10
+    ],
+    "tonal_template": [
+      "*P*ZZPP*ZPPP*",
+      "*ZPPPZZ*ZPPP*",
+      "*ZPP*P*Z*ZPP*",
+      "*P*Z*PPZP*",
+      "*Z*ZPP*P*Z**PP*",
+      "*ZPPPZZ*ZPPP*",
+      "*ZPP*P*Z*ZPP*",
+      "*P*ZZP*ZP*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 380
+  },
+  "南乡子": {
+    "structure": [
+      5,
+      7,
+      9,
+      7,
+      5,
+      7,
+      9,
+      7
+    ],
+    "tonal_template": [
+      "*ZZPP",
+      "*ZPPZZP",
+      "*Z*PPZZPP",
+      "*ZPPZZP",
+      "*ZZPP",
+      "*ZPPZZP",
+      "*Z*PPZZPP",
+      "*ZPP*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 190
+  },
+  "清平乐": {
+    "structure": [
+      4,
+      5,
+      7,
+      6,
+      6,
+      6,
+      12
+    ],
+    "tonal_template": [
+      "*P*Z",
+      "*ZPPZ",
+      "*Z*PPZZ",
+      "*Z*P*Z",
+      "*P*ZPP",
+      "*P*ZPP",
+      "*Z*P*Z*P*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 336
+  },
+  "玉楼春": {
+    "structure": [
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*P**PPZ",
+      "*Z*PPZZ",
+      "*P*ZZPP",
+      "*Z*PPZZ",
+      "*P**PPZ",
+      "*Z*PPZZ",
+      "*P*ZZPP",
+      "*Z*PPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 213
+  },
+  "失调名": {
+    "structure": [
+      7
+    ],
+    "tonal_template": [
+      "*******"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 77
+  },
+  "千秋岁": {
+    "structure": [
+      4,
+      5,
+      6,
+      10,
+      10,
+      5,
+      5,
+      6,
+      10,
+      10
+    ],
+    "tonal_template": [
+      "*P*Z",
+      "*ZPPZ",
+      "P*ZPPZ",
+      "*PPZZ*ZPPZ",
+      "P*Z*P*ZPPZ",
+      "**PP*",
+      "*ZPPZ",
+      "PZZPP*",
+      "*PPZZ*ZPPZ",
+      "PZZ*P*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 34
+  },
+  "江城子": {
+    "structure": [
+      7,
+      3,
+      3,
+      9,
+      13,
+      7,
+      3,
+      3,
+      9,
+      13
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "ZPP",
+      "ZPP",
+      "*ZPP*ZZPP",
+      "*Z*PPZZPZZZPP",
+      "*P*ZZPP",
+      "ZPP",
+      "ZPP",
+      "*ZPPPZZPP",
+      "*Z*PPZZPZZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 112
+  },
+  "酹江月・念奴娇": {
+    "structure": [
+      13,
+      13,
+      13,
+      10,
+      15,
+      13,
+      13,
+      10
+    ],
+    "tonal_template": [
+      "*P*ZZPP*Z*PP*",
+      "*ZPPPZZ*Z*P**",
+      "*ZPP*P*Z*ZPP*",
+      "*P*Z*PPZP*",
+      "*Z*ZPP*P*Z**PP*",
+      "*Z*PPZZ*ZPPP*",
+      "*ZPP*P*Z*ZPP*",
+      "*P*Z*P*ZP*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 93
+  },
+  "浣溪沙": {
+    "structure": [
+      7,
+      7,
+      7,
+      7,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*ZPP*ZP",
+      "*P*ZZPP",
+      "*P*ZZPP",
+      "*Z*PPZZ",
+      "*P*ZZPP",
+      "*P*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 760
+  },
+  "菩萨蛮": {
+    "structure": [
+      7,
+      7,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "tonal_template": [
+      "*P*ZPPZ",
+      "*P*ZPPZ",
+      "*ZZPP",
+      "*P*ZP",
+      "*PPZZ",
+      "*ZPPZ",
+      "*ZZPP",
+      "*P*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 589
+  },
+  "醉蓬莱": {
+    "structure": [
+      13,
+      9,
+      13,
+      12,
+      16,
+      9,
+      13,
+      12
+    ],
+    "tonal_template": [
+      "Z*P*Z*ZPP*PPZ",
+      "*ZPPZ*PPZ",
+      "*ZPP*PPZZ*PPZ",
+      "*ZPP*P*Z*PPZ",
+      "*ZPP*P*Z**PP*PPZ",
+      "**PPZ*PPZ",
+      "*ZPP*P*ZZ*PP*",
+      "*ZPP*P*Z*PPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 84
+  },
+  "阮郎归": {
+    "structure": [
+      7,
+      5,
+      7,
+      5,
+      6,
+      5,
+      7,
+      5
+    ],
+    "tonal_template": [
+      "*PPZZPP",
+      "*P*ZP",
+      "*P*ZZPP",
+      "*P*ZP",
+      "P*ZZPP",
+      "*P*ZP",
+      "*P*ZZPP",
+      "*P*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 132
+  },
+  "齐天乐": {
+    "structure": [
+      13,
+      14,
+      4,
+      9,
+      11,
+      15,
+      14,
+      4,
+      9,
+      9
+    ],
+    "tonal_template": [
+      "*P*ZPPZPPZPPZ",
+      "*ZPPPPZ***PPPZ",
+      "PPZZ",
+      "Z**PPZPPZ",
+      "ZZPPZPPZZPZ",
+      "PPPZZZZPPZZP*PZ",
+      "ZZPPPPZZ**PP*Z",
+      "PPZZ",
+      "Z**PPZPPZ",
+      "*ZPPZPPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 63
+  },
+  "霜天晓角": {
+    "structure": [
+      4,
+      5,
+      12,
+      5,
+      5,
+      12
+    ],
+    "tonal_template": [
+      "*P**",
+      "*ZPP*",
+      "*Z*P*Z**Z*P*",
+      "**P**",
+      "**P**",
+      "*Z*P*Z**ZZP*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 60
+  },
+  "眼儿媚": {
+    "structure": [
+      7,
+      5,
+      12,
+      12,
+      12
+    ],
+    "tonal_template": [
+      "*P**ZPP",
+      "*ZZPP",
+      "*P*Z*P*Z*ZPP",
+      "*P*ZPPZ*ZZPP",
+      "*P*Z*P*Z*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 84
+  },
+  "满庭芳": {
+    "structure": [
+      14,
+      9,
+      13,
+      12,
+      13,
+      9,
+      13,
+      12
+    ],
+    "tonal_template": [
+      "*ZPP*P*Z*P*ZPP",
+      "*P*Z*ZZPP",
+      "*ZPP*Z**Z*ZPP",
+      "PPZ*P*Z*ZZPP",
+      "*PPZZ*P*Z*ZPP",
+      "Z*****ZPP",
+      "*ZPP*Z**Z*ZPP",
+      "PPZ*P*Z*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 155
+  },
+  "朝中措": {
+    "structure": [
+      7,
+      5,
+      12,
+      12,
+      12
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "*ZZPP",
+      "*Z*P*Z*P*ZPP",
+      "*P*ZPP*Z*ZPP",
+      "*Z*P*Z*P*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 250
+  },
+  "汉宫春": {
+    "structure": [
+      13,
+      10,
+      11,
+      13,
+      15,
+      10,
+      11,
+      13
+    ],
+    "tonal_template": [
+      "*ZPPZ*P*Z*ZPP",
+      "PP***Z*ZPP",
+      "PPZZZPP*ZPP",
+      "PZZ*P*Z*P*ZPP",
+      "***P*ZZ*P*Z*ZPP",
+      "PPZP*Z*ZPP",
+      "PP*ZZPP**PP",
+      "PZ*PP*Z*P*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 56
+  },
+  "声声慢": {
+    "structure": [
+      14,
+      10,
+      13,
+      12,
+      15,
+      10,
+      13,
+      10
+    ],
+    "tonal_template": [
+      "PP*Z*ZPPPP*ZPP",
+      "*ZPP***ZPP",
+      "PPZP*ZZ*P*ZPP",
+      "**ZZ*P*Z*ZPP",
+      "*ZPP*Z****Z*ZPP",
+      "ZZPP***ZPP",
+      "PPZP*ZZPP**PP",
+      "**ZZPP*ZZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 54
+  },
+  "青玉案": {
+    "structure": [
+      7,
+      6,
+      7,
+      13,
+      7,
+      7,
+      7,
+      13
+    ],
+    "tonal_template": [
+      "*P*ZPPZ",
+      "Z*ZPPZ",
+      "*ZPPPZZ",
+      "*PPZZPPZ*ZPPZ",
+      "*P*ZPPZ",
+      "*ZPPZPZ",
+      "*Z*PPZZ",
+      "*PPZ*PPZ*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 69
+  },
+  "南柯子・南歌子": {
+    "structure": [
+      10,
+      7,
+      9,
+      10,
+      7,
+      9
+    ],
+    "tonal_template": [
+      "*ZPPZPPZZP",
+      "*PPZZPP",
+      "*Z*PPZZPP",
+      "*ZPP*PPZZP",
+      "*P*ZZPP",
+      "*Z*PPZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 48
+  },
+  "踏莎行": {
+    "structure": [
+      8,
+      7,
+      7,
+      7,
+      8,
+      7,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*ZPP*P*Z",
+      "*P*ZPPZ",
+      "*P*ZZPP",
+      "*P*ZPPZ",
+      "*ZPP*P*Z",
+      "*P*ZPPZ",
+      "*P*ZZPP",
+      "*P*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 196
+  },
+  "鹊桥仙": {
+    "structure": [
+      14,
+      14,
+      14,
+      14
+    ],
+    "tonal_template": [
+      "*P*Z*P*Z*Z*P*Z",
+      "*P*ZZPPZ*ZPP*Z",
+      "*P*Z*P*Z*Z*P*Z",
+      "*P*ZZPPZ*ZPP*Z"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 139
+  },
+  "更漏子": {
+    "structure": [
+      6,
+      6,
+      6,
+      5,
+      6,
+      6,
+      6,
+      5
+    ],
+    "tonal_template": [
+      "ZPPPZZ",
+      "*Z*PPZ",
+      "PZZZPP",
+      "*PPZP",
+      "ZPPPZZ",
+      "*Z*PPZ",
+      "P*ZZPP",
+      "*P*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 49
+  },
+  "卜算子": {
+    "structure": [
+      10,
+      12,
+      10,
+      12
+    ],
+    "tonal_template": [
+      "*ZZPP*ZPPZ",
+      "*ZPP*ZP*ZPPZ",
+      "*ZZPP*ZPPZ",
+      "*ZPP*ZP*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 199
+  },
+  "忆秦娥": {
+    "structure": [
+      3,
+      7,
+      3,
+      8,
+      7,
+      7,
+      3,
+      8
+    ],
+    "tonal_template": [
+      "PP*",
+      "*P*ZPP*",
+      "PP*",
+      "*PPZ*PP*",
+      "*P*ZPP*",
+      "*P*ZPP*",
+      "PP*",
+      "*PPZ**P*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 88
+  },
+  "长相思": {
+    "structure": [
+      3,
+      3,
+      7,
+      5,
+      3,
+      3,
+      7,
+      5
+    ],
+    "tonal_template": [
+      "*PP",
+      "**P",
+      "*ZPP*ZP",
+      "*P*ZP",
+      "*PP",
+      "Z*P",
+      "*ZPP*ZP",
+      "*P*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 89
+  },
+  "柳梢青": {
+    "structure": [
+      4,
+      8,
+      12,
+      6,
+      7,
+      12
+    ],
+    "tonal_template": [
+      "*ZPP",
+      "*P*Z*ZPP",
+      "*ZPP*P*Z*ZPP",
+      "*P*ZPP",
+      "Z*ZPPZP",
+      "*ZPP*P*Z*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 90
+  },
+  "诉衷情": {
+    "structure": [
+      7,
+      5,
+      11,
+      6,
+      3,
+      12
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "*ZZPP",
+      "*P**PZ*ZZPP",
+      "PZZZPP",
+      "ZPP",
+      "*P*Z*ZPP*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 128
+  },
+  "蝶恋花": {
+    "structure": [
+      7,
+      9,
+      7,
+      7,
+      7,
+      9,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*ZPPPZZ",
+      "*ZPP*ZPPZ",
+      "*Z*PPZZ",
+      "*P*ZPPZ",
+      "*ZPPPZZ",
+      "*ZPP*ZPPZ",
+      "*Z*PPZZ",
+      "*P*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 409
+  },
+  "如梦令": {
+    "structure": [
+      6,
+      6,
+      11,
+      2,
+      2,
+      6
+    ],
+    "tonal_template": [
+      "*Z*P*Z",
+      "*Z*PPZ",
+      "*ZZPP*Z*PPZ",
+      "PZ",
+      "PZ",
+      "*Z*PPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 152
+  },
+  "望江南・忆江南": {
+    "structure": [
+      8,
+      14,
+      5,
+      8,
+      14,
+      5
+    ],
+    "tonal_template": [
+      "P*Z*ZZPP",
+      "*Z*PPZZ*P*ZZPP",
+      "*ZZPP",
+      "P*Z*ZZPP",
+      "*Z*PPZZ*P*ZZPP",
+      "*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 152
+  },
+  "小重山": {
+    "structure": [
+      7,
+      8,
+      7,
+      8,
+      5,
+      8,
+      7,
+      8
+    ],
+    "tonal_template": [
+      "*ZPP*ZP",
+      "*PPZZZPP",
+      "*PPZZPP",
+      "P*ZPZZPP",
+      "*ZZPP",
+      "*PPZZZPP",
+      "*PPZZPP",
+      "P*Z*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 103
+  },
+  "虞美人": {
+    "structure": [
+      7,
+      5,
+      7,
+      9,
+      7,
+      5,
+      7,
+      9
+    ],
+    "tonal_template": [
+      "*P*ZPPZ",
+      "*ZPPZ",
+      "*P*ZZPP",
+      "*Z*PPZZPP",
+      "*P*ZPPZ",
+      "*ZPPZ",
+      "*P*ZZPP",
+      "*Z*PPZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 287
+  },
+  "生查子": {
+    "structure": [
+      10,
+      10,
+      10,
+      10
+    ],
+    "tonal_template": [
+      "****P*ZPPZ",
+      "*ZZPP*ZPPZ",
+      "****P*ZPPZ",
+      "*ZZPP*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 173
+  },
+  "水龙吟": {
+    "structure": [
+      13,
+      12,
+      12,
+      15,
+      6,
+      7,
+      12,
+      12,
+      13
+    ],
+    "tonal_template": [
+      "*P*ZPPZP*ZPPZ",
+      "PP*Z*P*Z*P*Z",
+      "*ZPP*P*Z*PPZ",
+      "Z*P*ZPP*ZP*Z*PZ",
+      "*ZPP*Z",
+      "ZPP*PPZ",
+      "*P*Z*P*Z*P*Z",
+      "*ZPP*P*Z*PPZ",
+      "Z*P*Z*P*ZZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 166
+  },
+  "永遇乐": {
+    "structure": [
+      12,
+      13,
+      14,
+      13,
+      14,
+      13,
+      14,
+      11
+    ],
+    "tonal_template": [
+      "**PP*P*Z*ZPZ",
+      "*ZPPPP*Z*ZPPZ",
+      "*P*ZPP*Z*ZZPPZ",
+      "*P*PP*Z**Z*PZ",
+      "*P*ZPPPZ*Z*PPZ",
+      "*ZPP*P*Z*ZPPZ",
+      "*P*Z*P*Z*ZZPPZ",
+      "*P*PPZZZPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 57
+  },
+  "感皇恩": {
+    "structure": [
+      9,
+      7,
+      10,
+      8,
+      8,
+      7,
+      10,
+      8
+    ],
+    "tonal_template": [
+      "*ZZPP*P*Z",
+      "*ZPPZPZ",
+      "*PPZ*Z*PPZ",
+      "*PPZZPPZ",
+      "*****P*Z",
+      "*ZPPZPZ",
+      "*P*Z*Z*PPZ",
+      "*PPZZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 80
+  },
+  "渔家傲": {
+    "structure": [
+      7,
+      7,
+      7,
+      3,
+      7,
+      7,
+      7,
+      7,
+      3,
+      7
+    ],
+    "tonal_template": [
+      "*Z*PPZZ",
+      "*P*ZPPZ",
+      "*Z*PPZZ",
+      "P*Z",
+      "*P*ZPPZ",
+      "*Z*PPZZ",
+      "*P*ZPPZ",
+      "*Z*PPZZ",
+      "P*Z",
+      "*P*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 241
+  },
+  "行香子": {
+    "structure": [
+      4,
+      4,
+      7,
+      8,
+      10,
+      8,
+      7,
+      8,
+      10
+    ],
+    "tonal_template": [
+      "*ZPP",
+      "*ZPP",
+      "ZPP*ZPP",
+      "PP*Z*ZPP",
+      "Z*P***ZZPP",
+      "P*****PP",
+      "*PP*ZPP",
+      "*P*Z*ZPP",
+      "Z*P***ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 23
+  },
+  "减字木兰花": {
+    "structure": [
+      4,
+      7,
+      4,
+      7,
+      4,
+      7,
+      4,
+      7
+    ],
+    "tonal_template": [
+      "*P*Z",
+      "*Z*PPZZ",
+      "*ZPP",
+      "*ZPP*ZP",
+      "*P*Z",
+      "*Z*PPZZ",
+      "*ZPP",
+      "*ZPP*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 409
+  },
+  "临江仙": {
+    "structure": [
+      13,
+      7,
+      10,
+      13,
+      7,
+      10
+    ],
+    "tonal_template": [
+      "*Z*PPZZ*P*ZPP",
+      "*P*ZZPP",
+      "*PPZZ*ZZPP",
+      "*Z*PPZZ*P*ZPP",
+      "*P*ZZPP",
+      "*PPZZ*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 376
+  },
+  "江神子・江城子": {
+    "structure": [
+      7,
+      3,
+      3,
+      9,
+      13,
+      7,
+      3,
+      3,
+      9,
+      13
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "ZPP",
+      "ZPP",
+      "*ZPPPZZPP",
+      "*Z*PPZZP*ZZPP",
+      "*P*ZZPP",
+      "ZPP",
+      "ZPP",
+      "*ZPP*ZZPP",
+      "*Z*PPZZPZZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 70
+  },
+  "乌夜啼": {
+    "structure": [
+      12,
+      12,
+      12,
+      12
+    ],
+    "tonal_template": [
+      "*ZPPZZ*P**PP",
+      "*P*ZPPZPZZPP",
+      "*ZPP*Z*P**PP",
+      "*P*ZPPZ*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 25
+  },
+  "瑞鹧鸪": {
+    "structure": [
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*P**Z*P",
+      "**PP**P",
+      "***PP*Z",
+      "****Z*P",
+      "*P**PPZ",
+      "**PPZ*P",
+      "******Z",
+      "*PP*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 53
+  },
+  "木兰花・玉楼春": {
+    "structure": [
+      7,
+      7,
+      14,
+      7,
+      7,
+      14
+    ],
+    "tonal_template": [
+      "*P*ZPPZ",
+      "*ZPPP*Z",
+      "*P*ZZPP*Z*PPZZ",
+      "*P*ZPPZ",
+      "*Z*PPZZ",
+      "*P*ZZPP*Z*PPZZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 84
+  },
+  "风入松": {
+    "structure": [
+      7,
+      5,
+      14,
+      12,
+      7,
+      5,
+      14,
+      12
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "*ZZPP",
+      "*P**PPZ*P**ZPP",
+      "*Z*P*Z*P*ZPP",
+      "*P*ZZPP",
+      "*ZZPP",
+      "*P*ZPPZ*P**ZPP",
+      "*Z*P*Z*P*ZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 35
+  },
+  "采桑子": {
+    "structure": [
+      11,
+      4,
+      7,
+      11,
+      4,
+      7
+    ],
+    "tonal_template": [
+      "PP*ZPPZ*ZPP",
+      "*ZPP",
+      "*ZPP*ZP",
+      "*P*ZPPZ*ZPP",
+      "*ZPP",
+      "*ZPP*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 104
+  },
+  "丑奴儿・采桑子": {
+    "structure": [
+      11,
+      4,
+      7,
+      11,
+      4,
+      7
+    ],
+    "tonal_template": [
+      "*P*ZPPZ*ZPP",
+      "*ZPP",
+      "*ZPP*ZP",
+      "*P*ZPP**ZPP",
+      "*ZPP",
+      "*ZPP*ZP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 48
+  },
+  "定风波": {
+    "structure": [
+      7,
+      7,
+      7,
+      2,
+      7,
+      7,
+      2,
+      7,
+      7,
+      2,
+      7
+    ],
+    "tonal_template": [
+      "*ZPP*ZP",
+      "*P*ZZPP",
+      "*Z*PPZZ",
+      "PZ",
+      "*PPZZPP",
+      "*Z*PPZZ",
+      "PZ",
+      "*P*ZZPP",
+      "*Z*PPZZ",
+      "*Z",
+      "*PPZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 53
+  },
+  "南歌子": {
+    "structure": [
+      10,
+      7,
+      9,
+      10,
+      7,
+      9
+    ],
+    "tonal_template": [
+      "*ZPPZPP*ZP",
+      "*P*ZZPP",
+      "*Z*PPZZPP",
+      "*ZPPZPPZZP",
+      "*P*ZZPP",
+      "*Z*PPZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 191
+  },
+  "醉落魄・一斛珠": {
+    "structure": [
+      4,
+      7,
+      7,
+      9,
+      7,
+      7,
+      7,
+      9
+    ],
+    "tonal_template": [
+      "*P**",
+      "*P*ZPP*",
+      "*P*ZPP*",
+      "*ZPP*Z*P*",
+      "*P*ZPP*",
+      "*P*ZPP*",
+      "*P*ZPP*",
+      "*ZPP*Z*P*"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 122
+  },
+  "凤栖梧・蝶恋花": {
+    "structure": [
+      7,
+      9,
+      7,
+      7,
+      7,
+      9,
+      7,
+      7
+    ],
+    "tonal_template": [
+      "*ZPPP*Z",
+      "*ZPP*ZPPZ",
+      "*Z*PPZZ",
+      "*P**PPZ",
+      "*ZPPP*Z",
+      "*ZPP*ZPPZ",
+      "*Z*PP*Z",
+      "*P*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 47
+  },
+  "桃源忆故人": {
+    "structure": [
+      7,
+      6,
+      6,
+      5,
+      7,
+      6,
+      6,
+      5
+    ],
+    "tonal_template": [
+      "*P*ZPPZ",
+      "*Z*PPZ",
+      "*Z*PPZ",
+      "*ZPPZ",
+      "*P*ZPPZ",
+      "*Z*P*Z",
+      "*Z*PPZ",
+      "*ZPPZ"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 50
+  },
+  "导引": {
+    "structure": [
+      9,
+      5,
+      12,
+      7,
+      5,
+      12
+    ],
+    "tonal_template": [
+      "*P*Z*ZZPP",
+      "*Z*PP",
+      "*P*ZPPZ*ZZPP",
+      "PP*ZZPP",
+      "*ZZPP",
+      "*P*ZPPZ*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 62
+  },
+  "渔父词・渔父": {
+    "structure": [
+      7,
+      7,
+      6,
+      7
+    ],
+    "tonal_template": [
+      "**P***P",
+      "**P*Z*P",
+      "PZZZPP",
+      "**P***P"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 51
+  },
+  "少年游": {
+    "structure": [
+      7,
+      5,
+      13,
+      12,
+      13
+    ],
+    "tonal_template": [
+      "*P*ZZPP",
+      "*ZZPP",
+      "*****P*Z*ZZPP",
+      "*P*ZPPZPZZPP",
+      "**PP*PPZ*ZZPP"
+    ],
+    "rhyme_indices": [],
+    "sample_size": 37
+  }
+}

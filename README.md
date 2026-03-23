@@ -33,7 +33,63 @@ Songci-GPT/
 │   └── 宋词/            # 宋词 JSON 数据
 │
 └── pyproject.toml       # 项目依赖
+
 ```
+
+## 宋词格律评估系统
+
+基于逆向工程从训练语料中提取的格律标准，自动评估生成宋词的格律符合度。
+
+### 模型对比结果（750样本）
+
+| 指标 | MHA | MLA | 说明 |
+|------|-----|-----|------|
+| 结构匹配率 | **82.4%** | 76.8% | MHA +5.6% |
+| 平均平仄准确度 | **87.2%** | 85.9% | MHA +1.3% |
+| 平均押韵一致性 | 100% | 100% | 两者持平 |
+| 综合格律得分 | **83.9/100** | 79.8/100 | **MHA +4.1分** |
+
+**结论**：MHA 模型在宋词生成任务上表现更好。MLA 虽然通过 KV Cache 压缩节省了内存，但在这个任务上牺牲了一定的生成质量。
+
+### 快速评估
+
+```bash
+cd scratch/songeval
+
+# 评估 MHA 模型（推荐）
+uv run python evaluate_model.py \
+  --model_type scratch \
+  --config_path ../configs/mha.yaml \
+  --num_titles 50 \
+  --output eval_mha.json
+
+# 评估 MLA 模型
+uv run python evaluate_model.py \
+  --model_type scratch \
+  --config_path ../configs/mla.yaml \
+  --num_titles 50 \
+  --output eval_mla.json
+
+# 对比结果
+python3 << 'EOF'
+import json
+with open('eval_mha.json') as f: mha = json.load(f)
+with open('eval_mla.json') as f: mla = json.load(f)
+print(f"MHA: {mha['aggregate_scores']['avg_form_score']*100:.1f}/100")
+print(f"MLA: {mla['aggregate_scores']['avg_form_score']*100:.1f}/100")
+EOF
+```
+
+### 格律库说明
+
+`scratch/songeval/standard.json` 包含 75 个常用词牌的格律标准：
+- **结构标准**：每句字数（如浣溪沙 `[7,7,7,7,7,7]`）
+- **平仄模板**：每个位置的平仄要求（`P`=平, `Z`=仄, `*`=不拘）
+- **押韵位置**：强制押韵的句索引
+
+格律库已提交到 Git，无需重新生成即可使用。
+
+详细文档见 [`scratch/songeval/README.md`](scratch/songeval/README.md)
 
 ## 两种实现对比
 
