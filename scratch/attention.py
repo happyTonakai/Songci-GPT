@@ -226,7 +226,7 @@ class MultiheadLatentAttention(nn.Module):
 
         # 3. apply rope to q and k
         s = x.size(1)
-        offset = past_kv[0].size(2) if past_kv is not None else 0
+        offset = past_kv[0].size(1) if past_kv is not None else 0  # kv_latent
         current_freqs_cis = freqs_cis[offset : offset + s]
         q_rope = rearrange(q_rope, "b s (h d_r) -> b h s d_r", h=self.num_head)
         k_rope = rearrange(k_rope, "b s d_r -> b 1 s d_r")  # broadcast
