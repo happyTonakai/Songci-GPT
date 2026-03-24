@@ -6,6 +6,7 @@ from config import Config, load_config
 from einops import rearrange
 from fire import Fire
 from model import SongCiGPT
+from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -72,9 +73,7 @@ class Trainer:
         self.model.load_state_dict(torch.load(path, weights_only=True))
         print(f"Model loaded from {path}")
 
-    def _compute_total_loss(
-        self, ce_loss: torch.Tensor, aux_loss: torch.Tensor
-    ) -> torch.Tensor:
+    def _compute_total_loss(self, ce_loss: Tensor, aux_loss: Tensor) -> Tensor:
         """
         Args:
             ce_loss: 主任务交叉熵损失 (Tensor)

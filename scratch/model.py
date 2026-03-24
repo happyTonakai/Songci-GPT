@@ -6,7 +6,21 @@ from attention import MultiHeadAttention, MultiheadLatentAttention, precompute_f
 from config import ModelConfig
 from einops import rearrange
 from tokenizer import BPETokenizer
-from torch import nn
+from torch import Tensor, nn
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.variance_epsilon = eps
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = x.float()
+        variance = x.pow(2).mean(-1, keepdim=True)
+        x = x * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * x.float()
 
 
 class MoELayer(nn.Module):
@@ -35,7 +49,7 @@ class MoELayer(nn.Module):
         )
         self.router = nn.Linear(embedding_dim, n_experts)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         # x shape: (batch, seq_len, d_model)
         B, T, D = x.shape
         x = rearrange(x, "b t d -> (b t) d")
@@ -116,9 +130,11 @@ class TransformerLayer(nn.Module):
         use_mla: bool = False,
         latent_dim: int | None = None,
         rope_head_dim: int | None = None,
+        use_attn_res: bool = False,
     ):
         super().__init__()
         self.use_mla = use_mla
+        self.use_attn_res = use_attn_res
         if use_mla:
             assert latent_dim is not None and rope_head_dim is not None
             self.self_attn = MultiheadLatentAttention(
@@ -141,11 +157,11 @@ class TransformerLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        freqs_cis: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+        x: Tensor,
+        freqs_cis: Tensor,
+        mask: Tensor | None = None,
+        past_kv: tuple[Tensor, Tensor] | None = None,
+    ) -> tuple[Tensor, tuple[Tensor, Tensor], Tensor]:
         """
         Args:
             x: 输入张量
@@ -172,7 +188,7 @@ class TransformerLayer(nn.Module):
             moe_out = self.moe(x_norm)
             x = x + moe_out
             # 这里写1是为了和上面MoE的loss对齐，=1的时候代表各专家已经负载均衡
-            aux_loss = torch.tensor(1.0, device=x.device)
+            aux_loss = Tensor(1.0, device=x.device)
         return x, present_kv, aux_loss
 
 
@@ -189,11 +205,11 @@ class TransformerEncoder(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        freqs_cis: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
-    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
+        x: Tensor,
+        freqs_cis: Tensor,
+        mask: Tensor | None = None,
+        past_kv_list: list[tuple[Tensor, Tensor]] | None = None,
+    ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
         """
         Args:
             x: 输入张量
@@ -208,7 +224,7 @@ class TransformerEncoder(nn.Module):
             total_aux_loss: 所有层的 MoE 负载均衡 loss 总和
         """
         present_kv_list = []
-        total_aux_loss = torch.tensor(0.0, device=x.device)
+        total_aux_loss = Tensor(0.0, device=x.device)
         for i, layer in enumerate(self.layers):
             # 获取当前层的历史缓存（如果有）
             past_kv = past_kv_list[i] if past_kv_list is not None else None
@@ -286,10 +302,10 @@ class SongCiGPT(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None,
-        past_kv_list: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
-    ) -> tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]], torch.Tensor]:
+        input_ids: Tensor,
+        attention_mask: Tensor | None = None,
+        past_kv_list: list[tuple[Tensor, Tensor]] | None = None,
+    ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
         """
         前向传播
 
@@ -380,7 +396,7 @@ class SongCiGPT(nn.Module):
         # 1. 编码 prompt
         prompt_text = "<bos>" + prompt_text + "<sep>"
         input_ids = tokenizer.encode(prompt_text)
-        input_ids = torch.tensor(input_ids, dtype=torch.long, device=device)
+        input_ids = Tensor(input_ids, dtype=torch.long, device=device)
         input_ids = input_ids.unsqueeze(0)
 
         # 2. 自回归生成
@@ -422,7 +438,7 @@ class SongCiGPT(nn.Module):
         generated_text = tokenizer.decode(input_ids[0].tolist())
         return generated_text.replace("</w>", "")
 
-    def _top_k_logits(self, logits: torch.Tensor, k: int) -> torch.Tensor:
+    def _top_k_logits(self, logits: Tensor, k: int) -> Tensor:
         if k == 0 or k > logits.size(-1):
             return logits
         # 将不要的 logits 设置为 float('-inf')
@@ -431,7 +447,7 @@ class SongCiGPT(nn.Module):
         probs.scatter_(-1, idx, value)
         return probs
 
-    def _top_p_logits(self, logits: torch.Tensor, p: float) -> torch.Tensor:
+    def _top_p_logits(self, logits: Tensor, p: float) -> Tensor:
         if p == 0.0 or p == 1.0:
             return logits
 

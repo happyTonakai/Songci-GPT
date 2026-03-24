@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from torch import nn
+from torch import Tensor, nn
 
 
 def precompute_freqs_cis(head_dim: int, end: int, theta: float = 10000.0):
@@ -17,7 +17,7 @@ def precompute_freqs_cis(head_dim: int, end: int, theta: float = 10000.0):
     return freqs_cis  # 形状: [max_seq_len, head_dim // 2]
 
 
-def apply_rotary_embedding(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+def apply_rotary_embedding(x: Tensor, freqs_cis: Tensor) -> Tensor:
     # x: [batch, num_head, seq_len, head_dim]
     # freqs_cis: [seq_len, head_dim // 2]  (预计算好的复数旋转因子)
     # 核心操作为将x两两分组，并与旋转因子相乘
@@ -38,13 +38,13 @@ def apply_rotary_embedding(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Te
 
 
 def scaled_dot_product_attention(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
     scale: float,
     attn_dropout: nn.Dropout,
-    mask: torch.Tensor | None = None,
-) -> torch.Tensor:
+    mask: Tensor | None = None,
+) -> Tensor:
     """
     Args:
         q: [batch_size, num_head, seq_len, head_dim]
@@ -73,11 +73,11 @@ def scaled_dot_product_attention(
 
 
 # def flash_attention_simulated(
-#     q: torch.Tensor,
-#     k: torch.Tensor,
-#     v: torch.Tensor,
-#     mask: torch.Tensor | None = None,
-# ) -> torch.Tensor:
+#     q: Tensor,
+#     k: Tensor,
+#     v: Tensor,
+#     mask: Tensor | None = None,
+# ) -> Tensor:
 #     B, H, N, d = q.shape
 #     # 模拟 Flash Attention 的实现 https://www.bilibili.com/video/BV1UT421k7rA
 #     # Matrices QKV shape N*d, On-chip SRAM size M, typically M=64k~128k, 65536 or 131072
@@ -118,11 +118,11 @@ class MultiHeadAttention(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        freqs_cis: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        x: Tensor,
+        freqs_cis: Tensor,
+        mask: Tensor | None = None,
+        past_kv: tuple[Tensor, Tensor] | None = None,
+    ) -> tuple[Tensor, tuple[Tensor, Tensor]]:
         """
         Args:
             x: 输入张量 [batch_size, seq_len, embedding_dim]
@@ -210,10 +210,10 @@ class MultiheadLatentAttention(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        freqs_cis: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        x: Tensor,
+        freqs_cis: Tensor,
+        mask: Tensor | None = None,
+        past_kv: tuple[Tensor, Tensor] | None = None,
     ):
         # 1. compress q and decouple content and position
         q_latent = self.q_down_proj(x)  # [B, S, d_c]

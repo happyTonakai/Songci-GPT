@@ -5,6 +5,7 @@ from glob import glob
 import orjson
 import torch
 from tokenizer import BPETokenizer
+from torch import Tensor
 from torch.utils.data import Dataset
 
 
@@ -35,7 +36,7 @@ class SongCiDataset(Dataset):
                 tokens = (
                     bos_id + tokens + eos_id + pad_id * (max_seq_len - len(tokens) - 2)
                 )
-                data.append(torch.Tensor(tokens).long())
+                data.append(Tensor(tokens).long())
         self.data = torch.stack(data)
 
     def __len__(self):

@@ -261,7 +261,7 @@ KV Cache 的核心思想是：**缓存历史 token 的 K（Key）和 V（Value�
 这通过在 `PositionalEmbedding` 中添加 `offset` 参数来实现：
 
 ```python
-def forward(self, x: torch.Tensor, offset: int = 0) -> torch.Tensor:
+def forward(self, x: Tensor, offset: int = 0) -> Tensor:
     positions = torch.arange(offset, offset + seq_len, ...)
 ```
 
