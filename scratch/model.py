@@ -130,7 +130,7 @@ class TransformerLayer(nn.Module):
         use_mla: bool = False,
         latent_dim: int | None = None,
         rope_head_dim: int | None = None,
-        use_attn_res: bool = False,
+        use_attn_res: bool | str = False,
     ):
         super().__init__()
         self.use_mla = use_mla
@@ -142,7 +142,14 @@ class TransformerLayer(nn.Module):
             )
         else:
             self.self_attn = MultiHeadAttention(embedding_dim, num_heads, dropout)
-        self.norm1 = nn.LayerNorm(embedding_dim)
+        if use_attn_res == "block":
+            # [batch, seq_len, d_model]
+            self.query_attn = nn.Parameter(torch.zeros(embedding_dim))
+            self.query_ffn = nn.Parameter(torch.zeros(embedding_dim))
+        elif use_attn_res == "full":
+            self.query = nn.Parameter(torch.zeros(embedding_dim))
+
+        self.norm_attn = nn.LayerNorm(embedding_dim)
         self.n_experts = n_experts
         if n_experts > 1:
             self.moe = MoELayer(n_experts, topk, hidden_dim, embedding_dim, dropout)
@@ -153,7 +160,7 @@ class TransformerLayer(nn.Module):
                 nn.Linear(hidden_dim, embedding_dim),
                 nn.Dropout(dropout),
             )
-        self.norm2 = nn.LayerNorm(embedding_dim)
+        self.norm_ffn = nn.LayerNorm(embedding_dim)
 
     def forward(
         self,
@@ -161,6 +168,7 @@ class TransformerLayer(nn.Module):
         freqs_cis: Tensor,
         mask: Tensor | None = None,
         past_kv: tuple[Tensor, Tensor] | None = None,
+        prev_layer_outputs: list[Tensor] | None = None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor], Tensor]:
         """
         Args:
@@ -175,12 +183,12 @@ class TransformerLayer(nn.Module):
             aux_loss: MoE 负载均衡 loss（如果不是 MoE 则为 0）
         """
         # Self-attention + 残差连接
-        x_norm = self.norm1(x)
+        x_norm = self.norm_attn(x)
         attn_out, present_kv = self.self_attn(x_norm, freqs_cis, mask, past_kv)
         x = x + attn_out
 
         # Pre-Norm + FFN/MoE + 残差连接
-        x_norm = self.norm2(x)
+        x_norm = self.norm_ffn(x)
         if self.n_experts > 1:
             moe_out, aux_loss = self.moe(x_norm)
             x = x + moe_out
@@ -188,7 +196,7 @@ class TransformerLayer(nn.Module):
             moe_out = self.moe(x_norm)
             x = x + moe_out
             # 这里写1是为了和上面MoE的loss对齐，=1的时候代表各专家已经负载均衡
-            aux_loss = Tensor(1.0, device=x.device)
+            aux_loss = torch.tensor(1.0, device=x.device)
         return x, present_kv, aux_loss
 
 
@@ -199,9 +207,14 @@ class TransformerEncoder(nn.Module):
     管理多个 TransformerLayer，并处理 KV Cache 在各层之间的传递
     """
 
-    def __init__(self, layers: list[TransformerLayer]):
+    def __init__(
+        self, layers: list[TransformerLayer], use_attn_res: bool | str = False
+    ):
         super().__init__()
         self.layers = nn.ModuleList(layers)
+        self.use_attn_res = use_attn_res
+        if use_attn_res:
+            assert use_attn_res in ["full", "block"]
 
     def forward(
         self,
@@ -224,16 +237,45 @@ class TransformerEncoder(nn.Module):
             total_aux_loss: 所有层的 MoE 负载均衡 loss 总和
         """
         present_kv_list = []
-        total_aux_loss = Tensor(0.0, device=x.device)
+        total_aux_loss = torch.tensor(0.0, device=x.device)
+        prev_layer_outputs = [x]  # used for attention residual
+
         for i, layer in enumerate(self.layers):
             # 获取当前层的历史缓存（如果有）
             past_kv = past_kv_list[i] if past_kv_list is not None else None
+            # attention residual
+            if self.use_attn_res == "full":
+                x = compute_full_attn_res(layer.query, prev_layer_outputs)
             # 前向传播，获取当前层的输出、新的 KV 和 aux_loss
             x, present_kv, aux_loss = layer(x, freqs_cis, mask, past_kv)
             present_kv_list.append(present_kv)
+            if self.use_attn_res == "full":
+                prev_layer_outputs.append(x)
             total_aux_loss += aux_loss
         return x, present_kv_list, total_aux_loss / len(self.layers)
         # ! divided by num_layers so that if aux_loss -> 1.0 means load balance
+
+
+def compute_full_attn_res(query: Tensor, prev_layer_outputs: list[Tensor]) -> Tensor:
+    # query: [embedding_dim]
+    # prev_layer_outputs: [batch_size, seq_len, embedding_dim]
+    # return: [batch_size, seq_len, embedding_dim]
+
+    if len(prev_layer_outputs) == 1:
+        return prev_layer_outputs[0]  # weights = 1
+
+    # [batch_size, seq_len, num_prev_layers, embedding_dim]
+    stacked = torch.stack(prev_layer_outputs, dim=2)
+    # rms norm
+    key = stacked * torch.rsqrt(torch.mean(stacked**2, dim=-1, keepdim=True) + 1e-8)
+
+    # logits = query @ key.transpose(-1, -2)  # [batch_size, seq_len, num_prev_layers]
+    logits = torch.einsum("d,bsnd->bsn", query, key)
+    weights = F.softmax(logits, dim=-1)  # [batch_size, seq_len, num_prev_layers]
+
+    # weights = weights.unsqueeze(-1)  # [batch_size, seq_len, num_prev_layers, 1]
+    # return torch.sum(weights * stacked, dim=2)  # [batch_size, seq_len, embedding_dim]
+    return torch.einsum("bsn,bsnd->bsd", weights, stacked)
 
 
 class SongCiGPT(nn.Module):
@@ -252,6 +294,8 @@ class SongCiGPT(nn.Module):
         freqs_cis = precompute_freqs_cis(head_dim, config.max_seq_len)
         self.register_buffer("freqs_cis", freqs_cis, persistent=False)
 
+        self.use_attn_res = getattr(config, "use_attn_res", False)
+
         decoder_layers = []
 
         for i in range(config.num_layers):
@@ -269,10 +313,13 @@ class SongCiGPT(nn.Module):
                 use_mla=getattr(config, "use_mla", False),
                 latent_dim=getattr(config, "latent_dim", None),
                 rope_head_dim=getattr(config, "rope_head_dim", None),
+                use_attn_res=self.use_attn_res,
             )
             decoder_layers.append(layer)
 
-        self.transformer = TransformerEncoder(decoder_layers)
+        self.transformer = TransformerEncoder(
+            decoder_layers, use_attn_res=self.use_attn_res
+        )
 
         # 使用 nn.TransformerEncoderLayer 更符合 Decoder-only 结构
         # 它只包含自注意力和前馈网络，没有交叉注意力
@@ -396,7 +443,7 @@ class SongCiGPT(nn.Module):
         # 1. 编码 prompt
         prompt_text = "<bos>" + prompt_text + "<sep>"
         input_ids = tokenizer.encode(prompt_text)
-        input_ids = Tensor(input_ids, dtype=torch.long, device=device)
+        input_ids = torch.tensor(input_ids, dtype=torch.long, device=device)
         input_ids = input_ids.unsqueeze(0)
 
         # 2. 自回归生成
@@ -491,6 +538,7 @@ if __name__ == "__main__":
         n_experts=4,
         topk=1,
         dropout=0.1,
+        use_attn_res="full",
     )
     model = SongCiGPT(config)
     input_ids = torch.randint(0, 1000, (4, 256))

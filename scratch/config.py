@@ -40,6 +40,7 @@ class ModelConfig:
     use_mla: bool = False
     latent_dim: int | None = None
     rope_head_dim: int | None = None
+    use_attn_res: bool | str = False
 
 
 @dataclass

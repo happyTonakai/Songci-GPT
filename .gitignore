@@ -15,3 +15,5 @@ ckpt/
 outputs/
 unsloth_compiled_cache/
 qwen3-0.6b-songci-lora/
+
+eval*.json
