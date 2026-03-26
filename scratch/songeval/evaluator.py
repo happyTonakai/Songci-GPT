@@ -11,7 +11,7 @@ Evaluator - 模型性能量化模块
 
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -398,101 +398,70 @@ class Evaluator:
         return accuracy, actual_patterns
 
     def evaluate_rhyme_with_sentences(
-        self, sentences: List[str], rhyme_indices: List[int]
+        self, sentences: List[str], rhyme_groups: List[List[int]]
     ) -> Tuple[float, Dict]:
-        """
-        基于给定句子评估押韵一致性
-
-        Args:
-            sentences: 预处理后的句子列表
-            rhyme_indices: 押韵位置索引
-
-        Returns:
-            (一致性 0-1, 详细统计信息)
-        """
-        if not rhyme_indices:
+        if not rhyme_groups:
             return 1.0, {"message": "该词牌无押韵要求"}
 
-        if len(sentences) < max(rhyme_indices) + 1:
+        all_indices = [idx for group in rhyme_groups for idx in group]
+        if len(sentences) < max(all_indices) + 1:
             return 0.0, {"error": "句子数量不足"}
 
-        rhyme_groups = defaultdict(int)
-        valid_rhymes = 0
+        group_results = []
+        total_consistency = 0.0
 
-        for idx in rhyme_indices:
-            if idx < len(sentences):
-                last_char = sentences[idx][-1] if sentences[idx] else ""
-                if last_char:
-                    rhyme_id = self.get_rhyme_id(last_char)
-                    if rhyme_id != "UNKNOWN":
-                        rhyme_groups[rhyme_id] += 1
-                        valid_rhymes += 1
+        for group in rhyme_groups:
+            rhyme_ids = []
+            for idx in group:
+                if idx < len(sentences):
+                    last_char = sentences[idx][-1] if sentences[idx] else ""
+                    if last_char:
+                        rhyme_id = self.get_rhyme_id(last_char)
+                        if rhyme_id != "UNKNOWN":
+                            rhyme_ids.append(rhyme_id)
 
-        if valid_rhymes == 0:
-            return 0.0, {"error": "无法识别韵部"}
+            if not rhyme_ids:
+                group_results.append(
+                    {"indices": group, "consistency": 0.0, "rhyme_ids": []}
+                )
+                continue
 
-        max_count = max(rhyme_groups.values()) if rhyme_groups else 0
-        consistency = max_count / valid_rhymes if valid_rhymes > 0 else 0.0
+            rhyme_counter = Counter(rhyme_ids)
+            max_count = rhyme_counter.most_common(1)[0][1]
+            consistency = max_count / len(rhyme_ids)
+
+            group_results.append(
+                {
+                    "indices": group,
+                    "consistency": consistency,
+                    "rhyme_ids": rhyme_ids,
+                    "distribution": dict(rhyme_counter),
+                }
+            )
+            total_consistency += consistency
+
+        avg_consistency = total_consistency / len(rhyme_groups) if rhyme_groups else 0.0
 
         details = {
-            "rhyme_indices": rhyme_indices,
-            "rhyme_distribution": dict(rhyme_groups),
-            "valid_rhymes": valid_rhymes,
-            "max_group_count": max_count,
+            "rhyme_groups": rhyme_groups,
+            "group_results": group_results,
+            "avg_consistency": avg_consistency,
         }
 
-        return consistency, details
+        return avg_consistency, details
 
     def evaluate_rhyme(self, title: str, text: str) -> Tuple[float, Dict]:
-        """
-        评估押韵一致性
-
-        Returns:
-            (一致性 0-1, 详细统计信息)
-        """
         if title not in self.registry:
             return 0.0, {}
 
         standard = self.registry[title]
-        rhyme_indices = standard["rhyme_indices"]
+        rhyme_groups = standard.get("rhyme_indices", [])
 
-        if not rhyme_indices:
-            # 该词牌无强制押韵要求
+        if not rhyme_groups:
             return 1.0, {"message": "该词牌无押韵要求"}
 
         sentences = self.parse_generated_text(text)
-
-        if len(sentences) < max(rhyme_indices) + 1:
-            return 0.0, {"error": "句子数量不足"}
-
-        # 收集押韵位置的韵部
-        rhyme_groups = defaultdict(int)
-        valid_rhymes = 0
-
-        for idx in rhyme_indices:
-            if idx < len(sentences):
-                last_char = sentences[idx][-1] if sentences[idx] else ""
-                if last_char:
-                    rhyme_id = self.get_rhyme_id(last_char)
-                    if rhyme_id != "UNKNOWN":
-                        rhyme_groups[rhyme_id] += 1
-                        valid_rhymes += 1
-
-        if valid_rhymes == 0:
-            return 0.0, {"error": "无法识别韵部"}
-
-        # 计算一致性：最大韵部占比
-        max_count = max(rhyme_groups.values()) if rhyme_groups else 0
-        consistency = max_count / valid_rhymes if valid_rhymes > 0 else 0.0
-
-        details = {
-            "rhyme_indices": rhyme_indices,
-            "rhyme_distribution": dict(rhyme_groups),
-            "valid_rhymes": valid_rhymes,
-            "max_group_count": max_count,
-        }
-
-        return consistency, details
+        return self.evaluate_rhyme_with_sentences(sentences, rhyme_groups)
 
     def evaluate(self, title: str, text: str) -> Dict:
         """

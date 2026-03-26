@@ -509,27 +509,17 @@ class RegistryBuilder:
 
     def analyze_rhyme_positions(
         self, samples: List[Dict], structure: List[int]
-    ) -> List[int]:
-        """
-        分析押韵位置
-
-        Args:
-            samples: 过滤后的样本
-            structure: 每句字数列表
-
-        Returns:
-            押韵句的索引列表 (0-based)
-        """
+    ) -> List[List[int]]:
         if not samples or not structure:
             return []
 
         num_sentences = len(structure)
-        rhyme_votes = [defaultdict(int) for _ in range(num_sentences)]
+        rhyme_patterns = []
 
         for item in samples:
-            # 使用智能拆分获取句子
             sentences = self.get_sentences_from_paragraphs(item, structure)
 
+            rhyme_ids = []
             for sentence_idx, cleaned in enumerate(sentences):
                 if sentence_idx >= num_sentences:
                     break
@@ -538,28 +528,32 @@ class RegistryBuilder:
                 if len(cleaned) != expected_len:
                     continue
 
-                # 获取句末字的韵部
                 last_char = cleaned[-1]
                 rhyme_id = self.get_rhyme_id(last_char)
-                rhyme_votes[sentence_idx][rhyme_id] += 1
+                rhyme_ids.append(rhyme_id)
 
-        # 判定押韵位置
-        rhyme_indices = []
-        total_samples = len(samples)
+            if len(rhyme_ids) == num_sentences:
+                rhyme_patterns.append(tuple(rhyme_ids))
 
-        for sent_idx, votes in enumerate(rhyme_votes):
-            if not votes:
+        if not rhyme_patterns:
+            return []
+
+        pattern_counter = Counter(rhyme_patterns)
+        most_common_pattern, count = pattern_counter.most_common(1)[0]
+
+        rhyme_groups = []
+        rhyme_group_counts = Counter(most_common_pattern)
+
+        for rhyme, group_count in rhyme_group_counts.most_common():
+            if rhyme == "UNKNOWN":
                 continue
 
-            # 找出最频繁的韵部
-            most_common_rhyme, count = max(votes.items(), key=lambda x: x[1])
-            ratio = count / total_samples
+            indices = [i for i, r in enumerate(most_common_pattern) if r == rhyme]
 
-            # 如果某韵部占比超过阈值，且该韵部不是 UNKNOWN，则判定为押韵位置
-            if ratio > self.confidence and most_common_rhyme != "UNKNOWN":
-                rhyme_indices.append(sent_idx)
+            if len(indices) >= 2:
+                rhyme_groups.append(sorted(indices))
 
-        return rhyme_indices
+        return rhyme_groups
 
     def build(self) -> Dict:
         """
