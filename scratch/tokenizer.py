@@ -29,11 +29,11 @@ class BPETokenizer:
         ]
         for token in self.special_tokens:
             self._add_to_vocab(token)
-        self.bos_id = self.encode("<bos>")
-        self.eos_id = self.encode("<eos>")
-        self.mask_id = self.encode("<mask>")
-        self.pad_id = self.encode("<pad>")
-        self.sep_id = self.encode("<sep>")
+        self.bos_id = self.token2id["<bos>"]
+        self.eos_id = self.token2id["<eos>"]
+        self.mask_id = self.token2id["<mask>"]
+        self.pad_id = self.token2id["<pad>"]
+        self.sep_id = self.token2id["<sep>"]
 
     def _add_to_vocab(self, token: str) -> None:
         if token not in self.token2id:
@@ -171,7 +171,7 @@ class BPETokenizer:
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        state_dict = self.__dict__
+        state_dict = self.__dict__.copy()
         state_dict["id2token"] = {str(k): v for k, v in self.id2token.items()}
         if "id" in state_dict:
             del state_dict["id"]
@@ -186,6 +186,11 @@ class BPETokenizer:
         with open(path, "r") as f:
             self.__dict__ = orjson.loads(f.read())
             self.id2token = {int(k): v for k, v in self.id2token.items()}
+            self.bos_id = self.token2id["<bos>"]
+            self.eos_id = self.token2id["<eos>"]
+            self.mask_id = self.token2id["<mask>"]
+            self.pad_id = self.token2id["<pad>"]
+            self.sep_id = self.token2id["<sep>"]
 
 
 def test_replace_new_token():
