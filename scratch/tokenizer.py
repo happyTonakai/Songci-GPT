@@ -9,6 +9,7 @@ import orjson
 from tqdm import tqdm
 
 jieba.dt.tmp_dir = "./.jieba_cache"
+os.makedirs("./.jieba_cache", exist_ok=True)
 
 
 class BPETokenizer:
@@ -223,7 +224,7 @@ def train_songci_tokenizer():
     tokenizer = BPETokenizer()  # 初始化词表大小 6103
 
     dataset = []
-    for file in glob("./scratch/dataset/宋词/*.json"):
+    for file in glob("./dataset/宋词/*.json"):
         with open(file, "rb") as f:
             data = orjson.loads(f.read())
             dataset += [
