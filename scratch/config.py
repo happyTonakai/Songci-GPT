@@ -7,6 +7,15 @@ from dataclasses import dataclass
 
 import yaml
 
+@dataclass
+class DPOParams:
+    """DPO 专用超参数"""
+    ref_ckpt_path: str
+    data_path: str
+    beta: float = 0.1
+    label_smoothing: float = 0.0
+    loss_type: str = "sigmoid"
+
 
 @dataclass
 class TrainConfig:
@@ -22,6 +31,7 @@ class TrainConfig:
     ckpt_path: str
     num_workers: int
     aux_loss_target_ratio: float = 0.01
+    dpo: DPOParams | None = None
 
 
 @dataclass
@@ -85,7 +95,10 @@ def load_config(config_path: str) -> Config:
     with open(config_path, "r", encoding="utf-8") as f:
         config_dict = yaml.safe_load(f)
 
-    train_cfg = TrainConfig(**config_dict["train"])
+    train_dict = config_dict["train"]
+    if "dpo" in train_dict and train_dict["dpo"] is not None:
+        train_dict["dpo"] = DPOParams(**train_dict["dpo"])
+    train_cfg = TrainConfig(**train_dict)
     model_cfg = ModelConfig(**config_dict["model"])
     data_cfg = DataConfig(**config_dict["data"])
     inference_cfg = InferenceConfig(**config_dict["inference"])

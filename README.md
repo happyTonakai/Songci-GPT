@@ -2,7 +2,7 @@
 
 基于深度学习的宋词生成项目，包含两种实现方式：
 
-1. **从零实现**：基于 PyTorch 从零实现 GPT 模型，支持 MoE 和 MLA
+1. **从零实现**：基于 PyTorch 从零实现 GPT 模型，支持 MoE 和 MLA，以及 DPO 对齐训练
 2. **Unsloth 微调**：基于 Unsloth 框架微调 Qwen3-0.6B
 
 ## 项目结构
@@ -12,7 +12,9 @@
 │   ├── model.py          # GPT 模型（支持 MoE/MLA）
 │   ├── attention.py      # 注意力机制（MHA/MLA）
 │   ├── tokenizer.py      # BPE 分词器
-│   ├── train.py          # 训练脚本
+│   ├── train.py          # SFT 训练脚本
+│   ├── train_dpo.py      # DPO 对齐训练脚本
+│   ├── generate_dpo_pairs.py  # DPO 偏好对生成（SongEval 作为奖励模型）
 │   ├── inference.py      # 推理脚本
 │   ├── configs/          # 配置文件（mha.yaml/mla.yaml）
 │   ├── ckpt/             # 模型检查点
@@ -22,6 +24,7 @@
 │   └── train_qwen_songci.py
 │
 ├── dataset/              # 宋词数据集
+│   └── dpo/              # DPO 偏好数据
 └── pyproject.toml        # 项目依赖
 ```
 
@@ -48,6 +51,26 @@
 
 详细评估方法和结果见 [`scratch/songeval/README.md`](scratch/songeval/README.md)
 
+## DPO 对齐训练
+
+使用 SongEval 格律评估作为奖励模型，自动标注偏好对，通过 DPO 提升生成质量。
+
+```bash
+# 1. 生成偏好对（需要先有 SFT 模型）
+uv run python scratch/generate_dpo_pairs.py \
+  --config_path=./scratch/configs/mha.yaml \
+  --num_candidates=8 \
+  --temperatures="0.7,0.9,1.0,1.2"
+
+# 2. DPO 训练
+uv run python scratch/train_dpo.py \
+  --config_path=./scratch/configs/mha.yaml \
+  --dpo_data_path=./dataset/dpo \
+  --ref_ckpt_path=./scratch/ckpt/mha.pt
+```
+
+**流程**: SFT 预训练 → SongEval 评估候选 → 标注 chosen/rejected → DPO 对齐
+
 ## 快速开始
 
 ```bash
@@ -57,8 +80,12 @@ uv sync
 # 训练分词器
 uv run python scratch/tokenizer.py
 
-# 训练模型（MHA）
+# SFT 训练
 uv run python scratch/train.py
+
+# DPO 对齐（可选）
+uv run python scratch/generate_dpo_pairs.py
+uv run python scratch/train_dpo.py --ref_ckpt_path=./scratch/ckpt/mha.pt
 
 # 交互式推理
 uv run python scratch/inference.py
@@ -74,9 +101,9 @@ uv run python evaluate_model.py --model_type scratch --config_path ../configs/mh
 |------|---------|---------|
 | 基础模型 | 从零实现 | Qwen3-0.6B |
 | 分词器 | 自定义 BPE | Qwen3 Tokenizer |
-| 训练方式 | 全参数 | LoRA (1-10%) |
+| 训练方式 | SFT + DPO 对齐 | LoRA (1-10%) |
 | 显存优化 | KV Cache + MLA | 4-bit 量化 |
-| 适用场景 | 学习原理 | 生产部署 |
+| 适用场景 | 学习原理、质量对齐 | 生产部署 |
 
 ## 详细文档
 

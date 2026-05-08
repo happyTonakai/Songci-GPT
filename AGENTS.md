@@ -4,7 +4,7 @@
 
 **Songci-GPT** 是一个基于深度学习的宋词生成项目，提供两种实现方式：
 
-1. **从零实现 (scratch/)**：基于 PyTorch 从零实现 GPT 模型，包含自定义 BPE 分词器、MoE (Mixture of Experts)、MLA (Multi-head Latent Attention) 和 KV Cache 推理优化
+1. **从零实现 (scratch/)**：基于 PyTorch 从零实现 GPT 模型，包含自定义 BPE 分词器、MoE (Mixture of Experts)、MLA (Multi-head Latent Attention)、KV Cache 推理优化，以及基于 DPO 的对齐训练
 2. **Unsloth 微调 (unsloth/)**：基于 Unsloth 框架微调 Qwen3-0.6B，使用 LoRA 高效微调技术
 
 ## 项目结构
@@ -23,13 +23,16 @@
 │   ├── config.py           # YAML 配置管理
 │   ├── tokenizer.py        # BPE 分词器实现
 │   ├── dataset.py          # 数据集加载和预处理
-│   ├── train.py            # 训练脚本
+│   ├── train_sft.py        # SFT 训练脚本
+│   ├── train_dpo.py        # DPO 对齐训练脚本
+│   ├── generate_dpo_pairs.py # DPO 偏好对生成脚本（SongEval 作为奖励模型）
 │   ├── inference.py        # 交互式推理脚本
 │   ├── tokenizer.json      # 预训练分词器
 │   ├── ckpt/              # 模型检查点目录
-│   └── configs/           # 配置文件目录
-│       ├── mha.yaml       # 标准 Multi-Head Attention 配置
-│       └── mla.yaml       # Multi-head Latent Attention 配置
+│   ├── configs/           # 配置文件目录
+│   │   ├── mha.yaml       # 标准 Multi-Head Attention 配置
+│   │   └── mla.yaml       # Multi-head Latent Attention 配置
+│   └── songeval/          # 宋词格律评估系统
 │
 ├── unsloth/               # Unsloth 微调实现
 │   ├── README.md          # unsloth 详细文档
@@ -40,6 +43,8 @@
 │   ├── README_songci_qa.md        # 问答生成文档
 │   ├── train-en.txt               # 英文训练语料
 │   ├── train-zh.txt               # 中文训练语料
+│   ├── dpo/                       # DPO 偏好数据
+│   │   └── dpo_pairs.json         # 生成的偏好对
 │   └── 宋词/                     # 宋词 JSON 数据
 │       ├── ci.song.*.json        # 宋词数据文件（多个分片）
 │       ├── 宋词三百首.json        # 宋词三百首精选
@@ -84,16 +89,25 @@ uv run python <script.py>
 - `einops>=0.8.2` - 张量操作
 - `fire>=0.7.1` - 命令行参数解析
 
+## 三种训练方式
+
+| 阶段 | 脚本 | 说明 |
+|------|------|------|
+| SFT | `train.py` / `train_sft.py` | 监督微调，学习宋词格式 |
+| DPO 偏好对生成 | `generate_dpo_pairs.py` | 用 SongEval 评估，自动标注 chosen/rejected |
+| DPO 对齐训练 | `train_dpo.py` | 从偏好数据学习，提升格律符合度 |
+
 ## 两种实现方式对比
 
 | 特性 | Scratch 实现 | Unsloth 微调 |
 |------|-------------|--------------|
 | 基础模型 | 从零实现 | Qwen3-0.6B-Base |
 | 分词器 | 自定义 BPE | Qwen3 Tokenizer |
-| 训练方式 | 全参数微调 | LoRA (1-10% 参数) |
+| 训练方式 | SFT + DPO 对齐 | LoRA (1-10% 参数) |
 | 显存优化 | KV Cache + MLA | 4-bit 量化 |
 | 架构特性 | MoE、RoPE、YAML 配置 | 标准 Transformer |
-| 适用场景 | 学习原理、架构实验 | 生产部署 |
+| 对齐方法 | SongEval 格律评估 → DPO | 无 |
+| 适用场景 | 学习原理、架构实验、质量对齐 | 生产部署 |
 
 ## 使用方法
 
@@ -112,16 +126,19 @@ uv run python scratch/tokenizer.py
 #### 2. 训练模型
 
 **标准 MHA 配置：**
+
 ```bash
 uv run python scratch/train.py
 ```
 
 **MLA 配置（更低内存占用）：**
+
 ```bash
 uv run python scratch/train.py --config_path=./scratch/configs/mla.yaml
 ```
 
 **配置参数说明：**
+
 - `batch_size`: 32
 - `learning_rate`: 1e-4
 - `epochs`: 100
@@ -140,6 +157,53 @@ uv run python scratch/inference.py --config_path=./scratch/configs/mla.yaml
 ```
 
 交互式输入词牌名即可生成宋词，输入 `q` 退出。
+
+#### 4. DPO 对齐训练（可选）
+
+DPO (Direct Preference Optimization) 通过偏好数据对模型进行对齐，使生成的宋词更符合格律规范。
+
+**第一步：生成偏好对**
+
+使用 SongEval 格律评估作为奖励模型，自动标注偏好对：
+
+```bash
+# 生成偏好对（需要先有训练好的 SFT 模型）
+uv run python scratch/generate_dpo_pairs.py \
+  --config_path=./scratch/configs/mha.yaml \
+  --num_pairs=500 \
+  --num_candidates=8 \
+  --temperatures="0.7,0.9,1.0,1.2" \
+  --output_path=./dataset/dpo/dpo_pairs.json
+```
+
+**参数说明：**
+
+- `num_pairs`: 目标偏好对数量，循环遍历 75 个词牌直到达到该数量（默认 500）
+- `num_candidates`: 每个词牌每轮生成的候选数量（越多偏好对质量越高）
+- `temperatures`: 逗号分隔的温度列表，循环使用以增加多样性
+- 奖励模型：SongEval 综合评分（结构 40% + 平仄 40% + 押韵 20%）
+
+**第二步：DPO 训练**
+
+```bash
+uv run python scratch/train_dpo.py \
+  --config_path=./scratch/configs/mha.yaml \
+  --dpo_data_path=./dataset/dpo \
+  --ref_ckpt_path=./scratch/ckpt/mha.pt
+```
+
+**参数说明：**
+
+- `dpo_data_path`: 偏好数据目录（包含 dpo_pairs.json）
+- `ref_ckpt_path`: reference model 的 checkpoint（通常是 SFT 训练好的模型）
+
+**DPO 核心组件：**
+
+- **Policy Model**: 可训练的模型，学习偏好
+- **Reference Model**: 冻结的 SFT 模型，作为基线
+- **DPO Loss**: `-log(sigmoid(beta * (π_chosen - π_rejected)))`
+  - `π = log_prob(policy) - log_prob(reference)`
+  - `beta`: 温度参数，控制偏离 reference model 的程度
 
 ### 方式二：Unsloth 微调
 
@@ -223,6 +287,14 @@ uv run python generate_songci_qa.py \
 - 便于实验复现和超参调优
 - 支持 MHA 和 MLA 两种配置
 
+### 7. DPO 对齐训练
+
+- **Direct Preference Optimization**: 无需训练独立的奖励模型，直接从偏好数据学习
+- **SongEval 作为奖励模型**: 使用格律评估系统（结构 + 平仄 + 押韵）自动标注偏好对
+- **多样性采样**: 对同一词牌使用不同 temperature 生成多个候选，评估后选最优/最差作为偏好对
+- **Reference Model**: 冻结的 SFT 模型作为基线，防止模型遗忘已学到的知识
+- **训练流程**: SFT 预训练 → 偏好对生成 → DPO 对齐 → 生成质量提升
+
 ## 宋词格律评估系统 (SongEval)
 
 位于 `scratch/songeval/`，用于自动评估生成宋词的格律符合度。
@@ -238,6 +310,7 @@ uv run python generate_songci_qa.py \
 ### 格律库 (standard.json)
 
 已提交到 Git，包含 75 个词牌：
+
 - **结构标准**：每句字数（如浣溪沙 `[7,7,7,7,7,7]`）
 - **平仄模板**：`P`=平声, `Z`=仄声, `*`=平仄不拘
 - **押韵位置**：强制押韵的句索引
@@ -284,6 +357,7 @@ EOF
 ### 训练集质量分析
 
 评估系统还包含训练集格律符合度统计：
+
 - **高质量词牌** (>=90%)：31个，如浣溪沙、鹧鸪天、玉楼春
 - **中质量词牌** (70-90%)：21个，如水调歌头、满江红
 - **低质量词牌** (<70%)：23个，如沁园春、水龙吟（变体过多）
@@ -303,12 +377,28 @@ EOF
 
 ### 训练格式
 
-**Scratch 实现：**
+**Scratch 实现（SFT）：**
+
 ```
 <bos>{词牌名}<sep>{正文}<eos>
 ```
 
+**Scratch 实现（DPO 偏好对）：**
+
+```json
+{
+  "prompt": "浣溪沙<sep>",
+  "chosen": "一曲新词酒一杯，去年天气旧亭台...",
+  "rejected": "无可奈何花落去，似曾相识燕归来...",
+  "chosen_score": 0.85,
+  "rejected_score": 0.32
+}
+```
+
+DPO 训练时，模型学习区分 chosen（高分）和 rejected（低分）的生成结果，隐式地学习格律规范。
+
 **Unsloth 实现：**
+
 ```
 <|im_start|>user
 请按照词牌名《水调歌头》写一首宋词：<|im_end|>
@@ -363,6 +453,7 @@ train:
 ### Git 提交规范
 
 根据 git log，项目使用以下提交规范：
+
 - `feat:` 新功能
 - `fix:` 修复问题
 - `docs:` 文档更新
@@ -395,9 +486,9 @@ train:
 
 ## 参考资料
 
-- 宋词数据集：https://github.com/chinese-poetry/chinese-poetry
-- Unsloth 框架：https://unsloth.ai/
-- Qwen3 模型：https://huggingface.co/Qwen/Qwen3-0.6B-Base
+- 宋词数据集：<https://github.com/chinese-poetry/chinese-poetry>
+- Unsloth 框架：<https://unsloth.ai/>
+- Qwen3 模型：<https://huggingface.co/Qwen/Qwen3-0.6B-Base>
 - DeepSeek MLA 论文
 
 ## 许可证

@@ -1,0 +1,48 @@
+# SongCiGPT 训练配置文件
+
+# 训练配置
+train:
+  batch_size: 32
+  learning_rate: 0.0001
+  epochs: 100
+  weight_decay: 0.00   # should be close to 0 for adam, 0.01 causes loss not decrease
+  warmup_steps: 1000
+  device: "cuda"
+  save_interval: 20
+  num_workers: 8
+  aux_loss_target_ratio: 0.01  # MoE aux loss 权重目标比例
+  ckpt_path: "./scratch/ckpt/dpo_mha.pt"  # 模型保存路径
+  dpo:
+    ref_ckpt_path: "./scratch/ckpt/mha.pt"  # 参考模型保存路径
+    data_path: "./dataset/dpo"  # DPO 偏好数据目录
+    beta: 0.1  # 温度参数，控制偏离 reference model 的程度
+
+# 模型配置
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 6
+  n_experts: 4
+  topk: 1
+  dropout: 0.1
+  # MLA 配置 (可选，如果使用 MLA 注意力)
+  use_mla: false
+  latent_dim: 64
+  rope_head_dim: 16
+
+# 数据配置
+data:
+  data_path: "./dataset/宋词"
+  tokenizer_path: "./scratch/ckpt/songci_tokenizer.json"
+  max_seq_len: 256
+  num_workers: 8
+
+# 推理配置
+inference:
+  temperature: 1.0
+  top_k: 100
+  top_p: 0.9
+  max_len: 256
