@@ -170,7 +170,7 @@ DPO (Direct Preference Optimization) 通过偏好数据对模型进行对齐，�
 # 生成偏好对（需要先有训练好的 SFT 模型）
 uv run python scratch/generate_dpo_pairs.py \
   --config_path=./scratch/configs/mha.yaml \
-  --num_pairs=500 \
+  --num_pairs=1000 \
   --num_candidates=8 \
   --temperatures="0.7,0.9,1.0,1.2" \
   --output_path=./dataset/dpo/dpo_pairs.json
@@ -178,7 +178,7 @@ uv run python scratch/generate_dpo_pairs.py \
 
 **参数说明：**
 
-- `num_pairs`: 目标偏好对数量，循环遍历 75 个词牌直到达到该数量（默认 500）
+- `num_pairs`: 目标偏好对数量，循环遍历 75 个词牌直到达到该数量（默认 1000）
 - `num_candidates`: 每个词牌每轮生成的候选数量（越多偏好对质量越高）
 - `temperatures`: 逗号分隔的温度列表，循环使用以增加多样性
 - 奖励模型：SongEval 综合评分（结构 40% + 平仄 40% + 押韵 20%）
@@ -294,6 +294,9 @@ uv run python generate_songci_qa.py \
 - **多样性采样**: 对同一词牌使用不同 temperature 生成多个候选，评估后选最优/最差作为偏好对
 - **Reference Model**: 冻结的 SFT 模型作为基线，防止模型遗忘已学到的知识
 - **训练流程**: SFT 预训练 → 偏好对生成 → DPO 对齐 → 生成质量提升
+- **DPO 实验结果** (375样本): 结构匹配率 80.80%→84.80% (+4.00%)，平仄准确度 87.45%→91.32% (+3.87%)，押韵一致性 67.42%→70.12% (+2.70%)，综合格律得分 81.99%→85.74% (+3.75%)
+- **DPO 训练配置**: 1000偏好对，beta=0.5，lr=5e-5，5 epochs，batch_size=32
+- **偏好对生成参数**: num_candidates=8，temperatures=[0.7, 0.9, 1.0, 1.2]，min_chosen_score=0.90，max_rejected_score=0.50
 
 ## 宋词格律评估系统 (SongEval)
 

@@ -335,6 +335,39 @@ logits, past_kv = self(x, past_kv_list=past_kv)
 - 使用因果掩码（causal mask）确保自回归特性
 - Padding mask 用于屏蔽 padding token
 
+### DPO 对齐训练
+
+在 SFT 基础上，使用 DPO (Direct Preference Optimization) 对模型进行格律对齐。以 SongEval 格律评估系统作为奖励模型，自动标注偏好对。
+
+**流程**：SFT 预训练 → 偏好对生成 → DPO 对齐 → 生成质量提升
+
+#### 生成偏好对
+
+```bash
+uv run python scratch/generate_dpo_pairs.py
+```
+
+默认参数：num_pairs=1000，num_candidates=8，temperatures=[0.7, 0.9, 1.0, 1.2]，min_chosen_score=0.90，max_rejected_score=0.50
+
+#### DPO 训练
+
+```bash
+uv run python scratch/train_dpo.py train --config_path=./scratch/configs/dpo_mha.yaml
+```
+
+训练完成后自动评估并对比 SFT 基线。
+
+#### 实验结果（375样本）
+
+| 指标 | SFT | DPO | Delta |
+|------|-----|-----|-------|
+| 结构匹配率 | 80.80% | **84.80%** | +4.00% |
+| 平均平仄准确度 | 87.45% | **91.32%** | +3.87% |
+| 平均押韵一致性 | 67.42% | **70.12%** | +2.70% |
+| 综合格律得分 | 81.99% | **85.74%** | **+3.75%** |
+
+训练配置：1000 偏好对，beta=0.5，lr=5e-5，5 epochs，batch_size=32
+
 ## 示例输出
 
 使用交互式推理：

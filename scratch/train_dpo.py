@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 from config import Config, load_config
 from fire import Fire
@@ -130,7 +132,7 @@ class DPOTrainer:
             batch_size=config.train.batch_size,
             shuffle=True,
             num_workers=config.train.num_workers,
-            persistent_workers=True,
+            persistent_workers=config.train.num_workers > 0,
         )
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
@@ -260,6 +262,8 @@ class DPOTrainer:
                 loss.backward()
                 self.optimizer.step()
 
+                pbar.set_postfix(loss=f"{loss.item():.4f}")
+
             if epoch % self.config.train.save_interval == 0:
                 self.save(f"./scratch/ckpt/dpo_model_{epoch}.pt")
 
@@ -270,6 +274,126 @@ class DPOTrainer:
     def load(self, path: str):
         self.model.load_state_dict(torch.load(path, weights_only=True))
         print(f"Model loaded from {path}")
+
+
+# ============================================================
+# Evaluation
+# ============================================================
+def evaluate(
+    config_path: str = "./scratch/configs/dpo_mha.yaml",
+    ref_ckpt_path: str = None,
+    dpo_ckpt_path: str = None,
+    num_titles: int = 75,
+    num_samples: int = 5,
+):
+    """对比评估 ref 模型和 DPO 模型的格律得分
+
+    Args:
+        config_path: 配置文件路径
+        ref_ckpt_path: SFT 模型 checkpoint 路径（默认从配置读取）
+        dpo_ckpt_path: DPO 模型 checkpoint 路径（默认从配置推导）
+        num_titles: 评估的词牌数量
+        num_samples: 每个词牌生成的样本数
+    """
+    config = load_config(config_path)
+    if ref_ckpt_path is None:
+        ref_ckpt_path = config.train.dpo.ref_ckpt_path
+    if dpo_ckpt_path is None:
+        dpo_ckpt_path = config.train.ckpt_path.replace(".pt", "_dpo.pt")
+    from songeval import Evaluator
+
+    device = config.train.device
+    tokenizer = BPETokenizer()
+    tokenizer.load(config.data.tokenizer_path)
+
+    registry_path = str(Path(__file__).parent / "songeval" / "standard.json")
+    evaluator = Evaluator(registry_path=registry_path)
+    titles = list(evaluator.registry.keys())[:num_titles]
+
+    def load_model(ckpt_path: str) -> SongCiGPT:
+        model = SongCiGPT(config.model)
+        model.load_state_dict(torch.load(ckpt_path, weights_only=True, map_location=device))
+        model.to(device)
+        model.eval()
+        return model
+
+    def generate(model: SongCiGPT, title: str) -> str:
+        with torch.no_grad():
+            text = model.generate(
+                tokenizer,
+                title,
+                temperature=config.inference.temperature,
+                top_k=config.inference.top_k,
+                top_p=config.inference.top_p,
+                max_len=config.inference.max_len,
+            )
+        return text.replace("<bos>", "").replace("<eos>", "").replace("<sep>", "").strip()
+
+    def score_model(model: SongCiGPT, label: str) -> dict:
+        form_scores = []
+        tonal_accs = []
+        rhyme_cons = []
+        struct_hits = 0
+        total = 0
+
+        for title in tqdm(titles, desc=f"评估 {label}"):
+            for _ in range(num_samples):
+                text = generate(model, title)
+                if title in text:
+                    text = text[len(title):]
+                report = evaluator.evaluate(title, text)
+                if "error" in report:
+                    continue
+                form_scores.append(report["form_score"])
+                tonal_accs.append(report["tonal"]["accuracy"])
+                rhyme_cons.append(report["rhyme"]["consistency"])
+                if report["structure"]["match"]:
+                    struct_hits += 1
+                total += 1
+
+        n = max(total, 1)
+        return {
+            "total_samples": total,
+            "structure_match_rate": struct_hits / n,
+            "avg_tonal_accuracy": sum(tonal_accs) / len(tonal_accs) if tonal_accs else 0,
+            "avg_rhyme_consistency": sum(rhyme_cons) / len(rhyme_cons) if rhyme_cons else 0,
+            "avg_form_score": sum(form_scores) / len(form_scores) if form_scores else 0,
+        }
+
+    # 加载两个模型
+    ref_model = load_model(ref_ckpt_path)
+    dpo_model = load_model(dpo_ckpt_path)
+
+    # 评估
+    ref_scores = score_model(ref_model, "Ref (SFT)")
+    dpo_scores = score_model(dpo_model, "DPO")
+
+    # 打印对比表
+    print("\n" + "=" * 70)
+    print("  DPO 对齐效果评估")
+    print("=" * 70)
+    print(f"  {'指标':<20} {'Ref (SFT)':>12} {'DPO':>12} {'Delta':>10}")
+    print("-" * 70)
+
+    metrics = [
+        ("结构匹配率", "structure_match_rate", True),
+        ("平均平仄准确度", "avg_tonal_accuracy", True),
+        ("平均押韵一致性", "avg_rhyme_consistency", True),
+        ("综合格律得分", "avg_form_score", True),
+    ]
+    for name, key, is_pct in metrics:
+        ref_v = ref_scores[key]
+        dpo_v = dpo_scores[key]
+        delta = dpo_v - ref_v
+        if is_pct:
+            print(f"  {name:<20} {ref_v*100:>11.2f}% {dpo_v*100:>11.2f}% {delta*100:>+9.2f}%")
+        else:
+            print(f"  {name:<20} {ref_v:>12.4f} {dpo_v:>12.4f} {delta:>+10.4f}")
+
+    print(f"\n  评估样本数: {ref_scores['total_samples']} (每个模型)")
+    print("=" * 70)
+
+    return ref_scores, dpo_scores
 
 
 # ============================================================
@@ -298,13 +422,18 @@ def train(
     dataset = DPODataset(config.data, config.train.dpo.data_path)
     trainer = DPOTrainer(model, ref_model, dataset, config)
 
+    dpo_ckpt_path = config.train.ckpt_path.replace(".pt", "_dpo.pt")
     try:
         trainer.train(num_epochs=config.train.epochs)
     except KeyboardInterrupt:
         print("Training interrupted by user")
     finally:
-        trainer.save(config.train.ckpt_path.replace(".pt", "_dpo.pt"))
+        trainer.save(dpo_ckpt_path)
+
+    # 训练完成后自动评估
+    print("\n训练完成，开始评估...")
+    evaluate(config_path, ref_ckpt_path, dpo_ckpt_path)
 
 
 if __name__ == "__main__":
-    Fire(train)
+    Fire({"train": train, "evaluate": evaluate})

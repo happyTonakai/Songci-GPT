@@ -237,15 +237,15 @@ class Evaluator:
 
         return cleaned
 
-    def evaluate_structure(self, title: str, text: str) -> Tuple[bool, List[str]]:
+    def evaluate_structure(self, title: str, text: str) -> Tuple[bool, float, List[str]]:
         """
         评估结构匹配度
 
         Returns:
-            (是否完全匹配, 实际句子列表)
+            (是否完全匹配, 句长匹配比例 0-1, 实际句子列表)
         """
         if title not in self.registry:
-            return False, []
+            return False, 0.0, []
 
         standard = self.registry[title]
         expected_structure = standard["structure"]
@@ -268,7 +268,16 @@ class Evaluator:
                     matches = False
                     break
 
-        return matches, sentences
+        # 计算连续结构分：句长匹配比例
+        n = min(len(actual_structure), len(expected_structure))
+        if n == 0:
+            ratio = 0.0
+        else:
+            matched = sum(1 for a, e in zip(actual_structure, expected_structure) if a == e)
+            # 句数不匹配时也扣分
+            ratio = matched / len(expected_structure)
+
+        return matches, ratio, sentences
 
     def _try_merge_sentences(
         self, sentences: List[str], expected_structure: List[int]
@@ -482,7 +491,7 @@ class Evaluator:
 
         # 1. 结构匹配（包含智能合并）
         raw_sentences = self.parse_generated_text(text, title)
-        structure_match, merged_sentences = self.evaluate_structure(title, text)
+        structure_match, structure_ratio, merged_sentences = self.evaluate_structure(title, text)
 
         # 使用合并后的句子进行评估
         sentences_to_evaluate = merged_sentences if structure_match else raw_sentences
@@ -498,16 +507,12 @@ class Evaluator:
             sentences_to_evaluate, standard["rhyme_indices"]
         )
 
-        # 综合打分 (可调整权重)
-        if structure_match:
-            form_score = (
-                0.4 * (1.0 if structure_match else 0.0)
-                + 0.4 * tonal_accuracy
-                + 0.2 * rhyme_consistency
-            )
-        else:
-            # 结构不匹配时，整体分数降低
-            form_score = 0.2 * tonal_accuracy + 0.1 * rhyme_consistency
+        # 综合打分 (连续结构分)
+        form_score = (
+            0.4 * structure_ratio
+            + 0.4 * tonal_accuracy
+            + 0.2 * rhyme_consistency
+        )
 
         report = {
             "title": title,
@@ -516,6 +521,7 @@ class Evaluator:
                 "expected": self.registry[title]["structure"],
                 "actual": actual_structure,
                 "match": structure_match,
+                "ratio": round(structure_ratio, 4),
             },
             "tonal": {
                 "expected": self.registry[title]["tonal_template"],
