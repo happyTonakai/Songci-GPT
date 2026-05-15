@@ -1,0 +1,57 @@
+# 24层全 MoE 模型配置
+# 每层: 1 共享专家 (always-on) + 8 路由专家 (top-2)
+# 每个 token 激活 3 个专家: 1 shared + 2 routed
+# 总参数 ~489M，激活参数 ~186M
+
+# 训练配置
+train:
+  batch_size: 4
+  learning_rate: 0.0001
+  epochs: 10
+  weight_decay: 0.00
+  warmup_steps: 1000
+  device: "cuda"
+  save_interval: 20
+  num_workers: 8
+  aux_loss_target_ratio: 0.01
+  ckpt_path: "./scratch/ckpt/mha_24l.pt"
+
+# 模型配置
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 24
+  n_experts: 8          # 路由专家数
+  topk: 2               # 每 token 激活 2 个路由专家
+  dropout: 0.1
+  n_shared_experts: 1   # 共享专家数 (always-on)
+  use_mla: false
+
+# 数据配置
+data:
+  data_path: "./dataset/宋词"
+  tokenizer_path: "./scratch/ckpt/songci_tokenizer.json"
+  max_seq_len: 256
+  num_workers: 8
+
+# 推理配置
+inference:
+  temperature: 1.0
+  top_k: 100
+  top_p: 0.9
+  max_len: 256
+
+# Elastic Training 配置 (ERNIE 5.0)
+# 弹性训练只影响路由专家，共享专家始终激活
+elastic:
+  depth_prob: 0.25      # 25% 概率 Bypassing 跳层
+  width_prob: 0.20      # 20% 概率缩减路由专家数
+  sparsity_prob: 0.20   # 20% 概率缩减路由 top-k
+  depth_levels: [18, 12, 6]      # 可选深度（全量24层由 depth_prob 控制）
+  width_levels: [4, 2]           # 可选路由专家数（全量8个由 width_prob 控制）
+  sparsity_levels: [1]           # 可选路由 top-k（全量 top-2 由 sparsity_prob 控制）
+  warmup_steps: 1000    # 前 1000 步用全量网络
+  core_experts: [0]     # 路由专家 0 永不被屏蔽

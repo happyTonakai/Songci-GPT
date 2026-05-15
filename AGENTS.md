@@ -4,7 +4,7 @@
 
 **Songci-GPT** 是一个基于深度学习的宋词生成项目，提供两种实现方式：
 
-1. **从零实现 (scratch/)**：基于 PyTorch 从零实现 GPT 模型，包含自定义 BPE 分词器、MoE (Mixture of Experts)、MLA (Multi-head Latent Attention)、KV Cache 推理优化，以及基于 DPO 的对齐训练
+1. **从零实现 (scratch/)**：基于 PyTorch 从零实现 GPT 模型，包含自定义 BPE 分词器、MoE (Mixture of Experts)、MLA (Multi-head Latent Attention)、KV Cache 推理优化、ERNIE 5.0 弹性训练 (Elastic Training)，以及基于 DPO 的对齐训练
 2. **Unsloth 微调 (unsloth/)**：基于 Unsloth 框架微调 Qwen3-0.6B，使用 LoRA 高效微调技术
 
 ## 项目结构
@@ -30,7 +30,8 @@
 │   ├── tokenizer.json      # 预训练分词器
 │   ├── ckpt/              # 模型检查点目录
 │   ├── configs/           # 配置文件目录
-│   │   ├── mha.yaml       # 标准 Multi-Head Attention 配置
+│   │   ├── mha.yaml       # 6层 MHA 配置（交错 MoE）
+│   │   ├── mha_24l.yaml   # 24层全 MoE 配置（共享专家 + 弹性训练）
 │   │   └── mla.yaml       # Multi-head Latent Attention 配置
 │   └── songeval/          # 宋词格律评估系统
 │
@@ -105,7 +106,7 @@ uv run python <script.py>
 | 分词器 | 自定义 BPE | Qwen3 Tokenizer |
 | 训练方式 | SFT + DPO 对齐 | LoRA (1-10% 参数) |
 | 显存优化 | KV Cache + MLA | 4-bit 量化 |
-| 架构特性 | MoE、RoPE、YAML 配置 | 标准 Transformer |
+| 架构特性 | MoE、MLA、共享专家、弹性训练、RoPE | 标准 Transformer |
 | 对齐方法 | SongEval 格律评估 → DPO | 无 |
 | 适用场景 | 学习原理、架构实验、质量对齐 | 生产部署 |
 
@@ -125,26 +126,37 @@ uv run python scratch/tokenizer.py
 
 #### 2. 训练模型
 
-**标准 MHA 配置：**
+**6层 MHA 配置（基础模型）：**
 
 ```bash
-uv run python scratch/train.py
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mha.yaml
+```
+
+**24层全 MoE 配置（推荐，含弹性训练）：**
+
+```bash
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mha_24l.yaml
 ```
 
 **MLA 配置（更低内存占用）：**
 
 ```bash
-uv run python scratch/train.py --config_path=./scratch/configs/mla.yaml
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mla.yaml
 ```
 
 **配置参数说明：**
 
-- `batch_size`: 32
-- `learning_rate`: 1e-4
-- `epochs`: 100
-- `save_interval`: 每 20 轮保存
-- 模型: vocab_size=10000, max_seq_len=256, embedding_dim=512, hidden_dim=2048, num_heads=8, num_layers=6
-- MoE: n_experts=4, topk=1（奇数层使用 MoE，偶数层使用 Dense）
+| 参数 | 6层模型 (mha.yaml) | 24层模型 (mha_24l.yaml) |
+|------|-------------------|------------------------|
+| num_layers | 6 | 24 |
+| embedding_dim | 512 | 512 |
+| hidden_dim | 2048 | 2048 |
+| n_experts | 4 (交错 MoE) | 8 (全 MoE) |
+| n_shared_experts | 0 | 1 (always-on) |
+| topk | 1 | 2 |
+| 总参数 | 41.8M | 489.2M |
+| 激活参数 | 29.1M | 186.5M |
+| 弹性训练 | 关闭 | 开启 |
 
 #### 3. 推理生成
 
@@ -256,10 +268,11 @@ uv run python generate_songci_qa.py \
 
 ### 2. MoE (Mixture of Experts)
 
-- 交错式 MoE 架构：奇数层使用 MoE，偶数层和最后一层使用 Dense
-- Top-k 路由机制（默认 topk=1）
-- 负载均衡损失确保专家均匀使用
-- 每个专家是独立的 FFN
+- **6层模型**：交错式架构，奇数层 MoE（4专家，top-1），偶数层 Dense
+- **24层模型**：全 MoE 架构，每层包含 1 个共享专家（always-on）+ 8 个路由专家（top-2）
+- **共享专家**：每个 token 必定经过，提取通用特征，不参与路由和负载均衡
+- **路由专家**：通过 Router 动态选择 top-k 个，负载均衡损失确保均匀使用
+- 每个专家是独立的 FFN（Linear → GELU → Linear）
 
 ### 3. MLA (Multi-head Latent Attention)
 
@@ -297,6 +310,41 @@ uv run python generate_songci_qa.py \
 - **DPO 实验结果** (375样本): 结构匹配率 80.80%→84.80% (+4.00%)，平仄准确度 87.45%→91.32% (+3.87%)，押韵一致性 67.42%→70.12% (+2.70%)，综合格律得分 81.99%→85.74% (+3.75%)
 - **DPO 训练配置**: 1000偏好对，beta=0.5，lr=5e-5，5 epochs，batch_size=32
 - **偏好对生成参数**: num_candidates=8，temperatures=[0.7, 0.9, 1.0, 1.2]，min_chosen_score=0.90，max_rejected_score=0.50
+
+### 8. 弹性训练 (Elastic Training)
+
+受 ERNIE 5.0 论文启发，在预训练阶段同时优化一个完整的模型家族。核心思想：每次训练迭代以一定概率随机缩减模型的深度、宽度、稀疏度，使得同一套参数在各种配置下都能正常工作。
+
+**三个正交维度：**
+
+| 维度 | 机制 | 概率 | 说明 |
+|------|------|------|------|
+| **弹性深度** | Bypassing 跳层 | 25% | 被跳过的层执行恒等映射（Stochastic Depth） |
+| **弹性宽度** | Masking 路由专家 | 20% | 将非活跃专家 logits 设为 -inf，共享专家不受影响 |
+| **弹性稀疏度** | 缩减 top-k | 20% | 从预定义范围中随机选更小的 k |
+
+**工程细节：**
+
+- **Bypassing vs 截断**：采用跳层（Bypassing）而非截断前缀。残差连接使得被跳过的层成为恒等映射 `X_{l+1} = X_l`，梯度无损穿过，而截断会强迫浅层学深层特征
+- **课程学习**：`warmup_steps` 之前使用全量网络稳定训练，之后才开启弹性
+- **核心专家**：`core_experts` 指定的路由专家永不被弹性宽度屏蔽（类似 DeepSeek Shared Expert）
+- **共享专家**：always-on，不参与弹性宽度和负载均衡
+
+**配置示例：**
+
+```yaml
+elastic:
+  depth_prob: 0.25
+  width_prob: 0.20
+  sparsity_prob: 0.20
+  depth_levels: [24, 18, 12, 6]    # 预定义配置库
+  width_levels: [8, 4, 2]
+  sparsity_levels: [2, 1]
+  warmup_steps: 1000               # 课程学习
+  core_experts: [0]                # 核心专家永不屏蔽
+```
+
+**训练日志**：进度条显示当前弹性配置，如 `Elastic [depth=12, width=4, topk=1]`
 
 ## 宋词格律评估系统 (SongEval)
 
@@ -411,7 +459,7 @@ DPO 训练时，模型学习区分 chosen（高分）和 rejected（低分）的
 
 ## 配置文件详解
 
-### MHA 配置 (configs/mha.yaml)
+### MHA 配置 (configs/mha.yaml) — 6层基础模型
 
 ```yaml
 model:
@@ -430,6 +478,37 @@ train:
   learning_rate: 0.0001
   epochs: 100
   ckpt_path: "./scratch/ckpt/mha.pt"
+```
+
+### MHA 24层配置 (configs/mha_24l.yaml) — 全 MoE + 弹性训练
+
+```yaml
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 24
+  n_experts: 8           # 路由专家数
+  topk: 2                # 每 token 激活 2 个路由专家
+  n_shared_experts: 1    # 共享专家 (always-on)
+  dropout: 0.1
+  use_mla: false
+
+train:
+  batch_size: 32
+  ckpt_path: "./scratch/ckpt/mha_24l.pt"
+
+elastic:
+  depth_prob: 0.25
+  width_prob: 0.20
+  sparsity_prob: 0.20
+  depth_levels: [24, 18, 12, 6]
+  width_levels: [8, 4, 2]
+  sparsity_levels: [2, 1]
+  warmup_steps: 1000
+  core_experts: [0]
 ```
 
 ### MLA 配置 (configs/mla.yaml)

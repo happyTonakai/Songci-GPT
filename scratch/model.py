@@ -31,11 +31,29 @@ class MoELayer(nn.Module):
         hidden_dim: int,
         embedding_dim: int,
         dropout: float,
+        n_shared_experts: int = 0,
     ):
         super().__init__()
         assert topk <= n_experts
         self.topk = topk
         self.n_experts = n_experts
+        self.n_shared_experts = n_shared_experts
+
+        # 共享专家（always-on，不参与路由和负载均衡）
+        # 每个 token 都经过共享专家，提取通用特征
+        self.shared_experts = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(embedding_dim, hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(hidden_dim, embedding_dim),
+                    nn.Dropout(dropout),
+                )
+                for _ in range(n_shared_experts)
+            ]
+        )
+
+        # 路由专家（通过 Router 动态选择 top-k 个）
         self.experts = nn.ModuleList(
             [
                 nn.Sequential(
@@ -49,17 +67,40 @@ class MoELayer(nn.Module):
         )
         self.router = nn.Linear(embedding_dim, n_experts)
 
-    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(
+        self,
+        x: Tensor,
+        active_experts: list[int] | None = None,
+        elastic_topk: int | None = None,
+    ) -> tuple[Tensor, Tensor]:
         # x shape: (batch, seq_len, d_model)
         B, T, D = x.shape
-        x = rearrange(x, "b t d -> (b t) d")
-        logits = self.router(x)
+        x_flat = rearrange(x, "b t d -> (b t) d")
+
+        # ── 共享专家: always-on，每个 token 都经过 ──
+        shared_output = torch.zeros_like(x_flat)
+        for shared_expert in self.shared_experts:
+            shared_output = shared_output + shared_expert(x_flat)
+
+        # ── 路由专家: 通过 Router 动态选择 ──
+        logits = self.router(x_flat)
         # Noisy Top-k Gating 在训练过程中强制添加噪声
         if self.training:
             noise = torch.randn_like(logits) * (1.0 / self.n_experts)  # 注入噪声
             logits = logits + noise
 
-        # 计算专家路由负载均衡loss
+        # Elastic Width: 将非活跃路由专家的 logits 设为 -inf
+        # 注意：共享专家不受弹性宽度影响，始终激活
+        if active_experts is not None:
+            mask_tensor = torch.full_like(logits, float("-inf"))
+            for idx in active_experts:
+                mask_tensor[:, idx] = 0.0
+            logits = logits + mask_tensor
+
+        # Elastic Sparsity: 使用缩减的 top-k
+        effective_topk = elastic_topk if elastic_topk is not None else self.topk
+
+        # 计算专家路由负载均衡loss（只针对路由专家）
         # 每个token选择每个专家的概率 (n_tokens, n_experts)
         probs = F.softmax(logits, dim=-1)
         P = probs.mean(dim=0)  # 每个专家平均被选择的概率 (n_experts, )
@@ -73,10 +114,21 @@ class MoELayer(nn.Module):
         # 因此switch transformer中提出的双重约束，即同时约束概率和频次
 
         # 计算每个专家实际被选中为topk的频率
-        topk_logits, topk_indices = torch.topk(logits, self.topk, dim=-1)
+        topk_logits, topk_indices = torch.topk(logits, effective_topk, dim=-1)
         f = F.one_hot(topk_indices, num_classes=self.n_experts).float().mean(dim=0)
-        # 乘以 n_experts 是为了让 loss 的量级不随专家数量变化
-        # !f hard 这个分支是没有梯度的
+        # Elastic Width: 负载均衡只考虑活跃专家
+        if active_experts is not None:
+            active_mask = torch.zeros(self.n_experts, device=logits.device)
+            for idx in active_experts:
+                active_mask[idx] = 1.0
+            P = P * active_mask
+            f = f * active_mask
+            # 对活跃专家的概率重新归一化，确保负载均衡信号有效
+            P_sum = P.sum()
+            if P_sum > 0:
+                P = P / P_sum
+        # 使用固定的 self.n_experts 作为系数，保持正则化强度一致
+        # 不随活跃专家数量变化，避免弹性宽度时梯度信号减弱
         load_balance_loss = self.n_experts * (f * P).sum()
 
         # 进入专家路由
@@ -84,8 +136,8 @@ class MoELayer(nn.Module):
         # 在很多主流实现（比如 Switch Transformer）中，人们倾向于对所有专家的 logits 先做 Softmax，
         # 然后再取 Top-K。如果先取 Top-K 再 Softmax，会放大这 $K$ 个专家之间的差距
 
-        # weighted sum of experts outputs
-        output = torch.zeros_like(x, device=x.device)
+        # weighted sum of routed experts outputs
+        routed_output = torch.zeros_like(x_flat, device=x_flat.device)
 
         # 当前的实现是遍历所有专家，不涉及到单个专家的容量问题
         # 若修改为并行处理，需要引入单个专家的capacity，防止单个专家爆炸
@@ -98,12 +150,14 @@ class MoELayer(nn.Module):
             # 有哪些token选中了这个专家，以及选中的顺位如何
             token_idx, k_idx = mask.nonzero(as_tuple=True)
             # 专家i的输出
-            out = expert(x[token_idx])
+            out = expert(x_flat[token_idx])
             # 该token对于这个专家的权重如何
             w = weights[token_idx, k_idx].unsqueeze(-1)
             # 专家i的加权输出
-            output[token_idx] += w * out
+            routed_output[token_idx] += w * out
 
+        # 最终输出 = 共享专家 + 路由专家
+        output = shared_output + routed_output
         output = rearrange(output, "(b t) d -> b t d", b=B, t=T)
         return output, load_balance_loss
 
@@ -131,6 +185,7 @@ class TransformerLayer(nn.Module):
         latent_dim: int | None = None,
         rope_head_dim: int | None = None,
         use_attn_res: bool | str = False,
+        n_shared_experts: int = 0,
     ):
         super().__init__()
         self.use_mla = use_mla
@@ -152,7 +207,10 @@ class TransformerLayer(nn.Module):
         self.norm_attn = nn.LayerNorm(embedding_dim)
         self.n_experts = n_experts
         if n_experts > 1:
-            self.moe = MoELayer(n_experts, topk, hidden_dim, embedding_dim, dropout)
+            self.moe = MoELayer(
+                n_experts, topk, hidden_dim, embedding_dim, dropout,
+                n_shared_experts=n_shared_experts,
+            )
         else:
             self.moe = nn.Sequential(
                 nn.Linear(embedding_dim, hidden_dim),
@@ -169,6 +227,8 @@ class TransformerLayer(nn.Module):
         mask: Tensor | None = None,
         past_kv: tuple[Tensor, Tensor] | None = None,
         prev_layer_outputs: list[Tensor] | None = None,
+        active_experts: list[int] | None = None,
+        elastic_topk: int | None = None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor], Tensor]:
         """
         Args:
@@ -176,6 +236,8 @@ class TransformerLayer(nn.Module):
             freqs_cis: 预计算好的复数旋转因子
             mask: 注意力掩码
             past_kv: 来自上一轮的 KV 缓存
+            active_experts: Elastic Width — 活跃专家索引列表 (None=全部)
+            elastic_topk: Elastic Sparsity — 缩减后的 top-k (None=默认)
 
         Returns:
             x: 处理后的输出
@@ -190,7 +252,7 @@ class TransformerLayer(nn.Module):
         # Pre-Norm + FFN/MoE + 残差连接
         x_norm = self.norm_ffn(x)
         if self.n_experts > 1:
-            moe_out, aux_loss = self.moe(x_norm)
+            moe_out, aux_loss = self.moe(x_norm, active_experts, elastic_topk)
             x = x + moe_out
         else:
             moe_out = self.moe(x_norm)
@@ -222,6 +284,9 @@ class TransformerEncoder(nn.Module):
         freqs_cis: Tensor,
         mask: Tensor | None = None,
         past_kv_list: list[tuple[Tensor, Tensor]] | None = None,
+        active_layer_indices: list[int] | None = None,
+        active_experts: list[int] | None = None,
+        elastic_topk: int | None = None,
     ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
         """
         Args:
@@ -230,6 +295,9 @@ class TransformerEncoder(nn.Module):
             mask: 注意力掩码
             past_kv_list: 各层的 KV 缓存列表
                          如果为 None，表示不使用缓存（首次前向传播）
+            active_layer_indices: Elastic Depth — 活跃层索引 (None=全部)
+            active_experts: Elastic Width — 活跃专家索引 (None=全部)
+            elastic_topk: Elastic Sparsity — 缩减后的 top-k (None=默认)
 
         Returns:
             x: 处理后的输出
@@ -240,20 +308,37 @@ class TransformerEncoder(nn.Module):
         total_aux_loss = torch.tensor(0.0, device=x.device)
         prev_layer_outputs = [x]  # used for attention residual
 
+        num_active = 0
         for i, layer in enumerate(self.layers):
+            # Elastic Depth: Bypassing 跳层（Stochastic Depth）
+            # 被跳过的层执行恒等映射 X_{l+1} = X_l，即残差连接的本意。
+            # 这比截断前缀更合理：梯度直接穿过被跳过的层（不更新其参数），
+            # 且深层特征仍可流向输出层，不会强迫浅层去学深层特征。
+            if active_layer_indices is not None and i not in active_layer_indices:
+                past_kv = past_kv_list[i] if past_kv_list is not None else None
+                present_kv_list.append(past_kv)
+                if self.use_attn_res:
+                    prev_layer_outputs.append(prev_layer_outputs[-1])
+                continue
+
             # 获取当前层的历史缓存（如果有）
             past_kv = past_kv_list[i] if past_kv_list is not None else None
             # attention residual
             if self.use_attn_res == "full":
                 x = compute_full_attn_res(layer.query, prev_layer_outputs)
             # 前向传播，获取当前层的输出、新的 KV 和 aux_loss
-            x, present_kv, aux_loss = layer(x, freqs_cis, mask, past_kv)
+            x, present_kv, aux_loss = layer(
+                x, freqs_cis, mask, past_kv,
+                active_experts=active_experts,
+                elastic_topk=elastic_topk,
+            )
             present_kv_list.append(present_kv)
             if self.use_attn_res == "full":
                 prev_layer_outputs.append(x)
             total_aux_loss += aux_loss
-        return x, present_kv_list, total_aux_loss / len(self.layers)
-        # ! divided by num_layers so that if aux_loss -> 1.0 means load balance
+            num_active += 1
+
+        return x, present_kv_list, total_aux_loss / max(num_active, 1)
 
 
 def compute_full_attn_res(query: Tensor, prev_layer_outputs: list[Tensor]) -> Tensor:
@@ -297,12 +382,18 @@ class SongCiGPT(nn.Module):
         self.use_attn_res = getattr(config, "use_attn_res", False)
 
         decoder_layers = []
+        n_shared = getattr(config, "n_shared_experts", 0)
 
         for i in range(config.num_layers):
-            if i % 2 == 1 and i != config.num_layers - 1:
+            # 全 MoE 模式：所有层都是 MoE（当 n_shared_experts > 0 时）
+            # 交替模式：奇数层 MoE，偶数层 Dense（向后兼容）
+            if n_shared > 0:
+                # 全 MoE：所有层使用相同的专家配置
+                num_experts = config.n_experts
+            elif i % 2 == 1 and i != config.num_layers - 1:
                 num_experts = config.n_experts
             else:
-                num_experts = 1  # 最后一层是dense
+                num_experts = 1  # Dense 层
             layer = TransformerLayer(
                 config.embedding_dim,
                 config.num_heads,
@@ -314,6 +405,7 @@ class SongCiGPT(nn.Module):
                 latent_dim=getattr(config, "latent_dim", None),
                 rope_head_dim=getattr(config, "rope_head_dim", None),
                 use_attn_res=self.use_attn_res,
+                n_shared_experts=n_shared,
             )
             decoder_layers.append(layer)
 
@@ -352,6 +444,9 @@ class SongCiGPT(nn.Module):
         input_ids: Tensor,
         attention_mask: Tensor | None = None,
         past_kv_list: list[tuple[Tensor, Tensor]] | None = None,
+        active_layer_indices: list[int] | None = None,
+        active_experts: list[int] | None = None,
+        elastic_topk: int | None = None,
     ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
         """
         前向传播
@@ -360,6 +455,9 @@ class SongCiGPT(nn.Module):
             input_ids: token ID 序列 [batch_size, seq_len]
             attention_mask: padding 掩码 [batch_size, seq_len]
             past_kv_list: 历史 KV 缓存列表，用于 KV Cache 推理
+            active_layer_indices: Elastic Depth — 活跃层索引 (None=全部)
+            active_experts: Elastic Width — 活跃专家索引 (None=全部)
+            elastic_topk: Elastic Sparsity — 缩减后的 top-k (None=默认)
 
         Returns:
             logits: 预测的 token 概率分布 [batch_size, seq_len, vocab_size]
@@ -396,7 +494,10 @@ class SongCiGPT(nn.Module):
 
         # 4. Transformer Encoder (带 KV Cache)
         x, present_kv_list, aux_loss = self.transformer(
-            x, self.freqs_cis, mask, past_kv_list
+            x, self.freqs_cis, mask, past_kv_list,
+            active_layer_indices=active_layer_indices,
+            active_experts=active_experts,
+            elastic_topk=elastic_topk,
         )
 
         # 5. 输出层：映射到词表大小
@@ -412,6 +513,9 @@ class SongCiGPT(nn.Module):
         top_k: int | None = None,
         top_p: float | None = None,
         max_len: int = 256,
+        active_layer_indices: list[int] | None = None,
+        active_experts: list[int] | None = None,
+        elastic_topk: int | None = None,
     ) -> str:
         """
         自回归生成文本（使用 KV Cache 优化）
@@ -456,7 +560,12 @@ class SongCiGPT(nn.Module):
             else:
                 x = input_ids[:, -1:]  # 只取最后一个 token
 
-            logits, past_kv_list, _ = self(x, past_kv_list=past_kv_list)
+            logits, past_kv_list, _ = self(
+                x, past_kv_list=past_kv_list,
+                active_layer_indices=active_layer_indices,
+                active_experts=active_experts,
+                elastic_topk=elastic_topk,
+            )
             logits = logits[:, -1, :]  # 只取最后一个位置的预测
 
             # 3. 温度调节

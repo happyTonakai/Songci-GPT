@@ -2,21 +2,24 @@
 
 基于深度学习的宋词生成项目，包含两种实现方式：
 
-1. **从零实现**：基于 PyTorch 从零实现 GPT 模型，支持 MoE 和 MLA，以及 DPO 对齐训练
+1. **从零实现**：基于 PyTorch 从零实现 GPT 模型，支持 MoE（共享专家 + 路由专家）、MLA、弹性训练（ERNIE 5.0 Elastic Training），以及 DPO 对齐训练
 2. **Unsloth 微调**：基于 Unsloth 框架微调 Qwen3-0.6B
 
 ## 项目结构
 
 ```
 ├── scratch/              # 从零实现
-│   ├── model.py          # GPT 模型（支持 MoE/MLA）
+│   ├── model.py          # GPT 模型（MoE/MLA/共享专家/弹性训练）
 │   ├── attention.py      # 注意力机制（MHA/MLA）
 │   ├── tokenizer.py      # BPE 分词器
-│   ├── train.py          # SFT 训练脚本
+│   ├── train_sft.py      # SFT 训练脚本（含弹性训练）
 │   ├── train_dpo.py      # DPO 对齐训练脚本
 │   ├── generate_dpo_pairs.py  # DPO 偏好对生成（SongEval 作为奖励模型）
 │   ├── inference.py      # 推理脚本
-│   ├── configs/          # 配置文件（mha.yaml/mla.yaml）
+│   ├── configs/          # 配置文件
+│   │   ├── mha.yaml      # 6层 MHA 配置
+│   │   ├── mha_24l.yaml  # 24层全 MoE + 弹性训练配置
+│   │   └── mla.yaml      # MLA 配置
 │   ├── ckpt/             # 模型检查点
 │   └── songeval/         # 格律评估系统 ⭐
 │
@@ -71,6 +74,27 @@ uv run python scratch/train_dpo.py \
 
 **流程**: SFT 预训练 → SongEval 评估候选 → 标注 chosen/rejected → DPO 对齐
 
+## 弹性训练 (Elastic Training)
+
+受 ERNIE 5.0 启发，一次预训练同时优化整个模型家族。训练时随机缩减模型的深度、宽度、稀疏度，使同一套参数在各种配置下都能正常工作，部署时可按需提取不同大小的子网络。
+
+```bash
+# 24层全 MoE 模型（含弹性训练）
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mha_24l.yaml
+```
+
+**三个维度：**
+- **弹性深度**：25% 概率 Bypassing 跳层（Stochastic Depth，残差直连）
+- **弹性宽度**：20% 概率缩减路由专家（共享专家不受影响）
+- **弹性稀疏度**：20% 概率缩减路由 top-k
+
+**模型对比：**
+
+| 配置 | 总参数 | 激活参数 | MoE 策略 |
+|------|--------|---------|---------|
+| 6层 mha.yaml | 41.8M | 29.1M | 交错 MoE（4专家, top-1） |
+| 24层 mha_24l.yaml | 489.2M | 186.5M | 全 MoE（1共享+8路由, top-2） |
+
 ## 快速开始
 
 ```bash
@@ -80,8 +104,11 @@ uv sync
 # 训练分词器
 uv run python scratch/tokenizer.py
 
-# SFT 训练
-uv run python scratch/train.py
+# SFT 训练（6层基础模型）
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mha.yaml
+
+# SFT 训练（24层全 MoE + 弹性训练，推荐）
+uv run python scratch/train_sft.py --config_path=./scratch/configs/mha_24l.yaml
 
 # DPO 对齐（可选）
 uv run python scratch/generate_dpo_pairs.py
@@ -103,7 +130,8 @@ uv run python evaluate_model.py --model_type scratch --config_path ../configs/mh
 | 分词器 | 自定义 BPE | Qwen3 Tokenizer |
 | 训练方式 | SFT + DPO 对齐 | LoRA (1-10%) |
 | 显存优化 | KV Cache + MLA | 4-bit 量化 |
-| 适用场景 | 学习原理、质量对齐 | 生产部署 |
+| 架构特性 | MoE（共享专家+路由专家）、弹性训练 | 标准 Transformer |
+| 适用场景 | 学习原理、架构实验、质量对齐 | 生产部署 |
 
 ## 详细文档
 

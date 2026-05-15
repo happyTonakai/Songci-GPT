@@ -6,7 +6,6 @@ train:
   learning_rate: 0.0001
   epochs: 100
   weight_decay: 0.00   # should be close to 0 for adam, 0.01 causes loss not decrease
-  warmup_steps: 1000
   device: "cuda"
   save_interval: 20
   num_workers: 8
@@ -42,3 +41,19 @@ inference:
   top_k: 100
   top_p: 0.9
   max_len: 256
+
+# Elastic Training 配置 (ERNIE 5.0)
+# 在训练时随机缩减模型的深度、宽度、稀疏度，一次训练产出模型家族
+# 注释掉此段或删除可关闭弹性训练
+elastic:
+  depth_prob: 0.25      # 25% 概率使用更浅的子网络（跳层 Bypassing）
+  width_prob: 0.20      # 20% 概率使用专家子集
+  sparsity_prob: 0.20   # 20% 概率使用更小的 top-k
+  # 预定义配置库（从全量中均匀采样子网络）
+  depth_levels: [4, 2]       # 可选深度：4层、2层（全量6层由 depth_prob 控制）
+  width_levels: [2]         # 可选专家数：2个（全量4个由 width_prob 控制）
+  sparsity_levels: [1]      # 可选 top-k（当前 topk=1，此项暂无效果）
+  # 课程学习：前 500 步使用全量网络稳定训练，之后再开启弹性
+  warmup_steps: 500
+  # 核心专家：专家 0 永不被屏蔽（类似 DeepSeek Shared Expert）
+  core_experts: [0]
