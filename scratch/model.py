@@ -287,55 +287,82 @@ class TransformerEncoder(nn.Module):
         active_layer_indices: list[int] | None = None,
         active_experts: list[int] | None = None,
         elastic_topk: int | None = None,
+        layer_loop_counts: list[int] | None = None,
     ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
         """
         Args:
             x: 输入张量
             freqs_cis: 预计算好的复数旋转因子
             mask: 注意力掩码
-            past_kv_list: 各层的 KV 缓存列表
-                         如果为 None，表示不使用缓存（首次前向传播）
+            past_kv_list: KV 缓存列表
+                         无 loop 时长度 = num_layers
+                         有 loop 时长度 = num_layers * loop_count（展开结构）
+                         如果为 None，表示不使用缓存（训练或首次前向传播）
             active_layer_indices: Elastic Depth — 活跃层索引 (None=全部)
             active_experts: Elastic Width — 活跃专家索引 (None=全部)
             elastic_topk: Elastic Sparsity — 缩减后的 top-k (None=默认)
+            layer_loop_counts: Per-Layer Loop — 每层的循环次数 (None=全部为1)
 
         Returns:
             x: 处理后的输出
-            present_kv_list: 各层当前轮的 KV 缓存，供下一轮使用
-            total_aux_loss: 所有层的 MoE 负载均衡 loss 总和
+            present_kv_list: KV 缓存列表（长度与 past_kv_list 一致）
+            total_aux_loss: 所有活跃层的 MoE 负载均衡 loss 平均值
         """
         present_kv_list = []
         total_aux_loss = torch.tensor(0.0, device=x.device)
         prev_layer_outputs = [x]  # used for attention residual
 
         num_active = 0
+        kv_idx = 0  # 全局 KV cache 索引（展开结构）
+
         for i, layer in enumerate(self.layers):
             # Elastic Depth: Bypassing 跳层（Stochastic Depth）
             # 被跳过的层执行恒等映射 X_{l+1} = X_l，即残差连接的本意。
             # 这比截断前缀更合理：梯度直接穿过被跳过的层（不更新其参数），
             # 且深层特征仍可流向输出层，不会强迫浅层去学深层特征。
             if active_layer_indices is not None and i not in active_layer_indices:
-                past_kv = past_kv_list[i] if past_kv_list is not None else None
-                present_kv_list.append(past_kv)
+                # 跳层：为该层所有 loop 迭代保留 cache 槽位
+                lc = 1
+                if layer_loop_counts is not None and i < len(layer_loop_counts):
+                    lc = layer_loop_counts[i]
+                for _ in range(lc):
+                    past_kv = past_kv_list[kv_idx] if past_kv_list is not None and kv_idx < len(past_kv_list) else None
+                    present_kv_list.append(past_kv)
+                    kv_idx += 1
                 if self.use_attn_res:
                     prev_layer_outputs.append(prev_layer_outputs[-1])
                 continue
 
-            # 获取当前层的历史缓存（如果有）
-            past_kv = past_kv_list[i] if past_kv_list is not None else None
             # attention residual
             if self.use_attn_res == "full":
                 x = compute_full_attn_res(layer.query, prev_layer_outputs)
-            # 前向传播，获取当前层的输出、新的 KV 和 aux_loss
-            x, present_kv, aux_loss = layer(
-                x, freqs_cis, mask, past_kv,
-                active_experts=active_experts,
-                elastic_topk=elastic_topk,
-            )
-            present_kv_list.append(present_kv)
+
+            # Per-Layer Loop: 在 encoder 级别循环，每个 loop 迭代有独立 KV cache
+            # 每个 loop 迭代相当于一个独立的"虚拟层"，共享同一套参数
+            loop_count = 1
+            if layer_loop_counts is not None and i < len(layer_loop_counts):
+                loop_count = layer_loop_counts[i]
+
+            loop_aux = torch.tensor(0.0, device=x.device)
+            for loop_j in range(loop_count):
+                # 获取当前虚拟层的历史 KV
+                # 每个 (layer_i, loop_j) 有独立的 KV cache 槽位
+                # past_kv 来自上一个 token 处理同一虚拟层时存入的缓存
+                # 隐藏状态 x 在 loop 间链式传递（loop_j>0 用 loop_j-1 的输出）
+                past_kv = past_kv_list[kv_idx] if past_kv_list is not None and kv_idx < len(past_kv_list) else None
+                # 前向传播
+                x, present_kv, aux_loss = layer(
+                    x, freqs_cis, mask, past_kv,
+                    active_experts=active_experts,
+                    elastic_topk=elastic_topk,
+                )
+                present_kv_list.append(present_kv)
+                loop_aux = loop_aux + aux_loss
+                kv_idx += 1
+
             if self.use_attn_res == "full":
                 prev_layer_outputs.append(x)
-            total_aux_loss += aux_loss
+            total_aux_loss = total_aux_loss + loop_aux / loop_count
             num_active += 1
 
         return x, present_kv_list, total_aux_loss / max(num_active, 1)
@@ -447,7 +474,9 @@ class SongCiGPT(nn.Module):
         active_layer_indices: list[int] | None = None,
         active_experts: list[int] | None = None,
         elastic_topk: int | None = None,
-    ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor]:
+        layer_loop_counts: list[int] | None = None,
+        block_loop_count: int = 1,
+    ) -> tuple[Tensor, list[tuple[Tensor, Tensor]], Tensor, list[Tensor] | None]:
         """
         前向传播
 
@@ -458,11 +487,14 @@ class SongCiGPT(nn.Module):
             active_layer_indices: Elastic Depth — 活跃层索引 (None=全部)
             active_experts: Elastic Width — 活跃专家索引 (None=全部)
             elastic_topk: Elastic Sparsity — 缩减后的 top-k (None=默认)
+            layer_loop_counts: Per-Layer Loop — 每层的循环次数 (None=全部为1)
+            block_loop_count: Per-Block Loop — 整个 block 循环次数 (1=不循环)
 
         Returns:
-            logits: 预测的 token 概率分布 [batch_size, seq_len, vocab_size]
+            logits: 最终步的预测分布 [batch_size, seq_len, vocab_size]
             present_kv_list: 当前轮的 KV 缓存，供下一轮生成使用
             aux_loss: MoE 负载均衡 loss（如果不是 MoE 则为 0）
+            loop_logits: Per-Block Loop 各步的 logits (block_loop_count=1 时为 None)
         """
         batch_size, seq_len = input_ids.size()
 
@@ -492,17 +524,30 @@ class SongCiGPT(nn.Module):
         else:
             mask = causal_mask
 
-        # 4. Transformer Encoder (带 KV Cache)
-        x, present_kv_list, aux_loss = self.transformer(
-            x, self.freqs_cis, mask, past_kv_list,
-            active_layer_indices=active_layer_indices,
-            active_experts=active_experts,
-            elastic_topk=elastic_topk,
-        )
+        # 4. Transformer Encoder + Per-Block Loop
+        # 训练时：每次循环都更新 x，收集所有 logits 计算平均 loss
+        # 推理时：同样循环 block_loop_count 次（x 累加），但只用最终 logits
+        # 注意：必须跑满所有循环，否则训练（4次累加）和推理（1次）不一致
+        loop_logits = None
+        if block_loop_count > 1 and self.training:
+            loop_logits = []
+
+        present_kv_list = None
+        aux_loss = None
+        for i in range(block_loop_count):
+            x, present_kv_list, aux_loss = self.transformer(
+                x, self.freqs_cis, mask, past_kv_list,
+                active_layer_indices=active_layer_indices,
+                active_experts=active_experts,
+                elastic_topk=elastic_topk,
+                layer_loop_counts=layer_loop_counts,
+            )
+            logits = self.ffn(x)
+            if loop_logits is not None:
+                loop_logits.append(logits)
 
         # 5. 输出层：映射到词表大小
-        logits = self.ffn(x)
-        return logits, present_kv_list, aux_loss
+        return logits, present_kv_list, aux_loss, loop_logits
 
     @torch.no_grad()
     def generate(
@@ -516,6 +561,8 @@ class SongCiGPT(nn.Module):
         active_layer_indices: list[int] | None = None,
         active_experts: list[int] | None = None,
         elastic_topk: int | None = None,
+        block_loop_count: int = 1,
+        layer_loop_counts: list[int] | None = None,
     ) -> str:
         """
         自回归生成文本（使用 KV Cache 优化）
@@ -551,20 +598,28 @@ class SongCiGPT(nn.Module):
         input_ids = input_ids.unsqueeze(0)
 
         # 2. 自回归生成
+        # Block Loop 推理：禁用 KV cache，每步处理完整序列
+        # 原因：训练时所有 token 在每个 loop 迭代中同步更新表示（深度一致）；
+        #       KV cache 的 context token 固定在最终深度，新 token 从深度 1 开始，
+        #       导致中间 loop 的 attention 严重不一致。这是架构层面的限制。
+        use_kv_cache = block_loop_count <= 1
         for _ in range(self.max_seq_len - len(input_ids)):
-            # KV Cache 优化：
-            # - 首次：使用完整的 input_ids 进行前向
-            # - 后续：只使用最后一个 token，大幅减少计算量
-            if past_kv_list is None:
-                x = input_ids
+            if use_kv_cache:
+                if past_kv_list is None:
+                    x = input_ids
+                else:
+                    x = input_ids[:, -1:]
             else:
-                x = input_ids[:, -1:]  # 只取最后一个 token
+                x = input_ids
+                past_kv_list = None
 
-            logits, past_kv_list, _ = self(
+            logits, past_kv_list, _, _ = self(
                 x, past_kv_list=past_kv_list,
                 active_layer_indices=active_layer_indices,
                 active_experts=active_experts,
                 elastic_topk=elastic_topk,
+                block_loop_count=block_loop_count,
+                layer_loop_counts=layer_loop_counts,
             )
             logits = logits[:, -1, :]  # 只取最后一个位置的预测
 
@@ -653,7 +708,7 @@ if __name__ == "__main__":
     input_ids = torch.randint(0, 1000, (4, 256))
     attention_mask = torch.ones(4, 256).bool()
     attention_mask = None
-    logits, _, aux_loss = model(input_ids, attention_mask)
+    logits, _, aux_loss, _ = model(input_ids, attention_mask)
     print(f"logits shape: {logits.shape}, aux_loss: {aux_loss.item():.6f}")
 
     # test generate

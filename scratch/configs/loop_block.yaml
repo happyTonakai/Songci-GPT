@@ -1,0 +1,57 @@
+# 6层模型 + Per-Block Loop (LoopLM/Ouro)
+# 整个 6 层 block 默认循环 4 次，小概率降到 2 或 3 次
+# 无弹性深度/宽度/稀疏度
+
+# 训练配置
+train:
+  batch_size: 8  # block loop 4次显存开销大，降低 batch_size
+  learning_rate: 0.0001
+  epochs: 10
+  weight_decay: 0.00
+  device: "cuda"
+  save_interval: 20
+  num_workers: 8
+  aux_loss_target_ratio: 0.01
+  ckpt_path: "./scratch/ckpt/loop_block.pt"
+
+# 模型配置
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 6
+  n_experts: 4
+  topk: 1
+  dropout: 0.1
+  use_mla: false
+
+# 数据配置
+data:
+  data_path: "./dataset/宋词"
+  tokenizer_path: "./scratch/ckpt/songci_tokenizer.json"
+  max_seq_len: 256
+  num_workers: 8
+
+# 推理配置
+inference:
+  temperature: 1.0
+  top_k: 100
+  top_p: 0.9
+  max_len: 256
+
+# Elastic Training 配置: 只开启 Per-Block Loop
+elastic:
+  # 关闭弹性深度/宽度/稀疏度
+  depth_prob: 0.0
+  width_prob: 0.0
+  sparsity_prob: 0.0
+  warmup_steps: 500
+  # Per-Block Loop: 默认循环 4 次，25% 概率降到 1/2/3 次（1=原始6层模型）
+  block_loop_count: 4
+  block_loop_drop_prob: 0.25
+  block_loop_levels: [1, 2, 3]
+  # 关闭 Per-Layer Loop
+  layer_loop_count: 1
+  layer_loop_drop_prob: 0.0

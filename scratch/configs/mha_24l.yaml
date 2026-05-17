@@ -55,3 +55,6 @@ elastic:
   sparsity_levels: [1]           # 可选路由 top-k（全量 top-2 由 sparsity_prob 控制）
   warmup_steps: 1000    # 前 1000 步用全量网络
   core_experts: [0]     # 路由专家 0 永不被屏蔽
+  # Loop 机制关闭（使用独立的 loop_block.yaml / loop_layer.yaml 做对比实验）
+  block_loop_count: 1
+  layer_loop_count: 1

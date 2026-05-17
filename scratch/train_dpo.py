@@ -140,6 +140,80 @@ class DPOTrainer:
             weight_decay=config.train.weight_decay,
         )
         self.tokenizer = dataset.tokenizer
+        self.global_step = 0
+
+    def _sample_elastic_config(self) -> dict:
+        """采样弹性训练配置（与 SFT Trainer 相同逻辑）"""
+        import random
+
+        elastic_cfg = self.config.elastic
+        if elastic_cfg is None:
+            return {}
+        if self.global_step < elastic_cfg.warmup_steps:
+            return {}
+
+        num_layers = self.config.model.num_layers
+        n_experts = self.config.model.n_experts
+        topk = self.config.model.topk
+        result = {}
+
+        # Elastic Depth
+        if random.random() < elastic_cfg.depth_prob:
+            if elastic_cfg.depth_levels:
+                levels = [d for d in elastic_cfg.depth_levels if d < num_layers]
+                if levels:
+                    n_active = random.choice(levels)
+                else:
+                    n_active = num_layers
+            else:
+                n_active = random.randint(2, num_layers)
+            result["active_layer_indices"] = sorted(random.sample(range(num_layers), n_active))
+
+        # Elastic Width
+        if n_experts > 1 and random.random() < elastic_cfg.width_prob:
+            core = {i for i in (elastic_cfg.core_experts or []) if 0 <= i < n_experts}
+            remaining = [i for i in range(n_experts) if i not in core]
+            if elastic_cfg.width_levels:
+                levels = [w for w in elastic_cfg.width_levels if w < n_experts]
+                if levels:
+                    n_active = random.choice(levels)
+                else:
+                    n_active = n_experts
+            else:
+                n_active = random.randint(1, n_experts)
+            n_active = max(n_active, len(core))
+            n_from_remaining = min(n_active - len(core), len(remaining))
+            result["active_experts"] = sorted(core | set(random.sample(remaining, n_from_remaining)))
+
+        # Elastic Sparsity
+        if topk > 1 and random.random() < elastic_cfg.sparsity_prob:
+            if elastic_cfg.sparsity_levels:
+                levels = [k for k in elastic_cfg.sparsity_levels if 1 <= k < topk]
+                if levels:
+                    result["elastic_topk"] = random.choice(levels)
+            else:
+                result["elastic_topk"] = random.randint(1, topk)
+
+        # Per-Block Loop: 默认循环 block_loop_count 次，小概率降级（含 1=不循环）
+        if elastic_cfg.block_loop_count >= 2:
+            result["block_loop_count"] = elastic_cfg.block_loop_count
+            if random.random() < elastic_cfg.block_loop_drop_prob:
+                levels = [t for t in (elastic_cfg.block_loop_levels or []) if 1 <= t < elastic_cfg.block_loop_count]
+                if levels:
+                    result["block_loop_count"] = random.choice(levels)
+
+        # Per-Layer Loop: 默认循环 layer_loop_count 次，小概率降级（含 1=不循环）
+        if elastic_cfg.layer_loop_count >= 2:
+            result["layer_loop_counts"] = [elastic_cfg.layer_loop_count] * num_layers
+            if random.random() < elastic_cfg.layer_loop_drop_prob:
+                levels = [t for t in (elastic_cfg.layer_loop_levels or []) if 1 <= t < elastic_cfg.layer_loop_count]
+                if levels:
+                    if random.random() < 0.5:
+                        result["layer_loop_counts"] = [random.choice(levels)] * num_layers
+                    else:
+                        result["layer_loop_counts"] = [random.choice(levels) for _ in range(num_layers)]
+
+        return result
 
     def compute_log_probs(
         self,
@@ -147,6 +221,7 @@ class DPOTrainer:
         input_ids: Tensor,
         attention_mask: Tensor,
         prompt_len: int,
+        **elastic_params,
     ) -> Tensor:
         """计算模型对 response 部分的 log 概率
 
@@ -155,12 +230,16 @@ class DPOTrainer:
             input_ids: (batch, seq_len)
             attention_mask: (batch, seq_len)
             prompt_len: prompt 的 token 长度（从 prompt_len 开始计算 loss）
+            **elastic_params: 弹性训练参数
 
         Returns:
             每个样本的 response 部分 log 概率之和 (batch,)
         """
-        # 1. 前向传播得到 logits
-        logits, _, _ = model(input_ids.to(self.device), attention_mask.to(self.device))
+        # 1. 前向传播得到 logits（只用最终步 logits，丢弃 loop_logits）
+        logits, _, _, _ = model(
+            input_ids.to(self.device), attention_mask.to(self.device),
+            **elastic_params,
+        )
         # 2. 错位对齐（偏移 1 位）
         # 预测 logits[t] -> 目标 target_ids[t]
         # 形状：logits 变为 (B, L-1, V), target_ids 变为 (B, L-1)
@@ -233,22 +312,29 @@ class DPOTrainer:
                 rejected_mask = batch_dict["rejected_attention_mask"].to(self.device)
                 prompt_len = batch_dict["prompt_len"]
 
-                # TODO: 实现训练步骤
+                # Elastic Training: 采样弹性配置（policy 和 ref 用同一份）
+                elastic_params = self._sample_elastic_config()
+
                 # 1. 用 policy model 计算 chosen/rejected 的 log_probs
                 chosen_logps = self.compute_log_probs(
-                    self.model, chosen_ids, chosen_mask, prompt_len
+                    self.model, chosen_ids, chosen_mask, prompt_len,
+                    **elastic_params,
                 )
                 rejected_logps = self.compute_log_probs(
-                    self.model, rejected_ids, rejected_mask, prompt_len
+                    self.model, rejected_ids, rejected_mask, prompt_len,
+                    **elastic_params,
                 )
                 # 2. 用 ref model 计算 chosen/rejected 的 log_probs (no_grad)
                 with torch.no_grad():
                     ref_chosen_logps = self.compute_log_probs(
-                        self.ref_model, chosen_ids, chosen_mask, prompt_len
+                        self.ref_model, chosen_ids, chosen_mask, prompt_len,
+                        **elastic_params,
                     )
                     ref_rejected_logps = self.compute_log_probs(
-                        self.ref_model, rejected_ids, rejected_mask, prompt_len
+                        self.ref_model, rejected_ids, rejected_mask, prompt_len,
+                        **elastic_params,
                     )
+                self.global_step += 1
                 # 3. 计算 DPO loss
                 loss = self.compute_dpo_loss(
                     chosen_logps,

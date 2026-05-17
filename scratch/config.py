@@ -93,6 +93,14 @@ class ElasticConfig:
     warmup_steps: int = 0
     # 核心专家：这些专家永不被宽度缩减屏蔽（类似 DeepSeek 的 Shared Expert）
     core_experts: list[int] | None = None
+    # Per-Block Loop (LoopLM/Ouro): 整个 block 循环 T 次，每步计算 loss
+    block_loop_count: int = 1  # 默认循环次数（1=不循环）
+    block_loop_drop_prob: float = 0.0  # 小概率降到更低的循环次数
+    block_loop_levels: list[int] | None = None  # 降级目标，e.g. [2, 3]
+    # Per-Layer Loop: 每层独立循环 t 次后再进入下一层
+    layer_loop_count: int = 1  # 默认循环次数（1=不循环）
+    layer_loop_drop_prob: float = 0.0  # 小概率降到更低的循环次数
+    layer_loop_levels: list[int] | None = None  # 降级目标，e.g. [2, 3]
 
 
 @dataclass

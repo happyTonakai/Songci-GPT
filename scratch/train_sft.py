@@ -51,14 +51,22 @@ class Trainer:
 
                 # Elastic Training: 每次迭代随机采样弹性配置
                 elastic_params = self._sample_elastic_config()
-                logits, _, aux_loss = self.model(
+                logits, _, aux_loss, loop_logits = self.model(
                     input_ids, attention_mask, **elastic_params
                 )
 
-                loss = F.cross_entropy(
-                    rearrange(logits, "b s d -> (b s) d"),
-                    rearrange(labels, "b s -> (b s)"),
-                )
+                if loop_logits is not None:
+                    # Per-Block Loop: 只用最后一个 loop step 的 logits 计算 loss
+                    # 推理时也只用最后一个 step，保持训练/推理一致
+                    loss = F.cross_entropy(
+                        rearrange(loop_logits[-1], "b s d -> (b s) d"),
+                        rearrange(labels, "b s -> (b s)"),
+                    )
+                else:
+                    loss = F.cross_entropy(
+                        rearrange(logits, "b s d -> (b s) d"),
+                        rearrange(labels, "b s -> (b s)"),
+                    )
                 # total_loss = loss + aux_loss
                 total_loss = self._compute_total_loss(loss, aux_loss)
                 total_loss.backward()
@@ -76,6 +84,10 @@ class Trainer:
                         parts.append(f"width={len(elastic_params['active_experts'])}")
                     if "elastic_topk" in elastic_params:
                         parts.append(f"topk={elastic_params['elastic_topk']}")
+                    if "block_loop_count" in elastic_params:
+                        parts.append(f"block_loop={elastic_params['block_loop_count']}")
+                    if "layer_loop_counts" in elastic_params:
+                        parts.append(f"layer_loop={elastic_params['layer_loop_counts'][0]}")
                     if parts:
                         elastic_desc = f", Elastic [{', '.join(parts)}]"
 
@@ -191,6 +203,29 @@ class Trainer:
                     result["elastic_topk"] = random.choice(levels)
             else:
                 result["elastic_topk"] = random.randint(1, topk)
+
+        # ── Per-Block Loop: LoopLM/Ouro ──
+        # 默认循环 block_loop_count 次，小概率降到更低的循环次数（含 1=不循环）
+        if elastic_cfg.block_loop_count >= 2:
+            result["block_loop_count"] = elastic_cfg.block_loop_count
+            if random.random() < elastic_cfg.block_loop_drop_prob:
+                levels = [t for t in (elastic_cfg.block_loop_levels or []) if 1 <= t < elastic_cfg.block_loop_count]
+                if levels:
+                    result["block_loop_count"] = random.choice(levels)
+
+        # ── Per-Layer Loop ──
+        # 默认循环 layer_loop_count 次，小概率降到更低的循环次数（含 1=不循环）
+        if elastic_cfg.layer_loop_count >= 2:
+            result["layer_loop_counts"] = [elastic_cfg.layer_loop_count] * num_layers
+            if random.random() < elastic_cfg.layer_loop_drop_prob:
+                levels = [t for t in (elastic_cfg.layer_loop_levels or []) if 1 <= t < elastic_cfg.layer_loop_count]
+                if levels:
+                    if random.random() < 0.5:
+                        # 50%: 所有层统一降级到同一个 loop count
+                        result["layer_loop_counts"] = [random.choice(levels)] * num_layers
+                    else:
+                        # 50%: 每层独立采样 loop count
+                        result["layer_loop_counts"] = [random.choice(levels) for _ in range(num_layers)]
 
         return result
 

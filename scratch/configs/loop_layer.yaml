@@ -1,0 +1,58 @@
+# 6层模型 + Per-Layer Loop
+# 每层独立循环 4 次，小概率降到 2 或 3 次
+# 无弹性深度/宽度/稀疏度
+
+# 训练配置
+train:
+  batch_size: 8  # layer loop 4次显存开销大（KV cache 6*4=24层），降低 batch_size
+  learning_rate: 0.0001
+  epochs: 10
+  weight_decay: 0.00
+  device: "cuda"
+  save_interval: 20
+  num_workers: 8
+  aux_loss_target_ratio: 0.01
+  ckpt_path: "./scratch/ckpt/loop_layer.pt"
+
+# 模型配置
+model:
+  vocab_size: 10000
+  max_seq_len: 256
+  embedding_dim: 512
+  hidden_dim: 2048
+  num_heads: 8
+  num_layers: 6
+  n_experts: 4
+  topk: 1
+  dropout: 0.1
+  use_mla: false
+
+# 数据配置
+data:
+  data_path: "./dataset/宋词"
+  tokenizer_path: "./scratch/ckpt/songci_tokenizer.json"
+  max_seq_len: 256
+  num_workers: 8
+
+# 推理配置
+inference:
+  temperature: 1.0
+  top_k: 100
+  top_p: 0.9
+  max_len: 256
+
+# Elastic Training 配置: 只开启 Per-Layer Loop
+elastic:
+  # 关闭弹性深度/宽度/稀疏度
+  depth_prob: 0.0
+  width_prob: 0.0
+  sparsity_prob: 0.0
+  warmup_steps: 500
+  # 关闭 Per-Block Loop
+  block_loop_count: 1
+  block_loop_drop_prob: 0.0
+  # Per-Layer Loop: 默认循环 4 次，25% 概率降到 1/2/3 次（1=原始6层模型）
+  # 降级时 50% 所有层统一，50% 每层独立采样
+  layer_loop_count: 4
+  layer_loop_drop_prob: 0.25
+  layer_loop_levels: [1, 2, 3]
